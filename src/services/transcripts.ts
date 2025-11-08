@@ -1,123 +1,249 @@
-import { mockTranscripts, Transcript } from "@/lib/mockData";
+import { supabase } from '@/lib/supabase';
+import type { Transcript } from '@/lib/types';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker - use the worker from node_modules
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
 
 /**
  * Transcript Service Layer
- * 
- * This service abstracts data operations for transcripts.
- * Currently uses mock data, but can be easily replaced with Supabase calls.
- * 
- * When migrating to Supabase:
- * 1. Replace mock data imports with Supabase client
- * 2. Update each function to use supabase.from('transcripts')
- * 3. Keep the same function signatures and return types
+ *
+ * This service handles all transcript operations with Supabase.
  */
 
 export class TranscriptService {
   /**
-   * Fetch all transcripts
-   * 
-   * Supabase equivalent:
-   * const { data, error } = await supabase
-   *   .from('transcripts')
-   *   .select('*')
-   *   .order('date_uploaded', { ascending: false });
+   * Fetch all transcripts with their predictions
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 100));
-    return mockTranscripts;
+    const { data, error } = await supabase
+      .from('transcripts')
+      .select('*')
+      .order('uploaded_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching transcripts:', error);
+      throw error;
+    }
+
+    return data || [];
   }
 
   /**
-   * Fetch a single transcript by ID
-   * 
-   * Supabase equivalent:
-   * const { data, error } = await supabase
-   *   .from('transcripts')
-   *   .select('*')
-   *   .eq('id', id)
-   *   .maybeSingle();
+   * Fetch a single transcript by ID with its prediction
    */
   static async getTranscriptById(id: string): Promise<Transcript | null> {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    return mockTranscripts.find(t => t.id === id) || null;
+    const { data, error } = await supabase
+      .from('transcripts')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error fetching transcript:', error);
+      throw error;
+    }
+
+    return data;
+  }
+
+  /**
+   * Extract text from PDF file
+   */
+  private static async extractTextFromPDF(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = '';
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += pageText + '\n';
+    }
+
+    return fullText.trim();
   }
 
   /**
    * Upload a new transcript
-   * 
-   * Supabase equivalent:
-   * // 1. Upload PDF to storage
-   * const { data: fileData, error: uploadError } = await supabase.storage
-   *   .from('transcripts')
-   *   .upload(`${userId}/${file.name}`, file);
-   * 
-   * // 2. Process PDF and extract text (via edge function)
-   * const { data: analysisData, error: analysisError } = await supabase.functions
-   *   .invoke('analyze-transcript', { body: { fileUrl: fileData.path } });
-   * 
-   * // 3. Insert transcript record
-   * const { data, error } = await supabase
-   *   .from('transcripts')
-   *   .insert({
-   *     filename: file.name,
-   *     content: analysisData.content,
-   *     innocence_score: analysisData.innocenceScore,
-   *     claims: analysisData.claims,
-   *     user_id: userId
-   *   })
-   *   .select()
-   *   .single();
+   * Extracts text from file and stores in database
+   * Supports both .txt and .pdf files
    */
-  static async uploadTranscript(file: File): Promise<{ success: boolean; transcriptId?: string; error?: string }> {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Mock successful upload
-    const newId = String(mockTranscripts.length + 1);
-    return { success: true, transcriptId: newId };
+  static async uploadTranscript(
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<{ success: boolean; transcriptId?: string; error?: string }> {
+    try {
+      let text: string;
+
+      // Extract text based on file type
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        onProgress?.(10);
+        text = await this.extractTextFromPDF(file);
+        onProgress?.(50);
+      } else {
+        // Plain text file
+        text = await file.text();
+        onProgress?.(50);
+      }
+
+      // Extract metadata from transcript content
+      const metadata = this.extractMetadataFromContent(text);
+
+      // Insert the transcript (database will generate UUID via DEFAULT)
+      const { data, error } = await supabase
+        .from('transcripts')
+        .insert({
+          file_name: file.name,
+          raw_text: text,
+          hearing_date: metadata.hearingDate,
+          inmate_name: metadata.inmateName,
+          cdcr_number: metadata.cdcrNumber,
+          processed: false,
+        })
+        .select()
+        .single();
+
+      onProgress?.(100);
+
+      if (error) {
+        console.error('Error uploading transcript:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, transcriptId: data.id };
+    } catch (err) {
+      console.error('Error uploading transcript:', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
   }
 
   /**
-   * Filter transcripts by score range
-   * 
-   * Supabase equivalent:
-   * const { data, error } = await supabase
-   *   .from('transcripts')
-   *   .select('*')
-   *   .gte('innocence_score', minScore)
-   *   .lte('innocence_score', maxScore)
-   *   .order('innocence_score', { ascending: false });
+   * Extract metadata from transcript content
+   * Patterns:
+   * - Inmate Name: "Hearing of: RAPHAEL BARRETO"
+   * - CDCR Number: "CDCR Number: V96693"
+   * - Hearing Date: "FEBRUARY 7, 2025"
    */
-  static async getTranscriptsByScoreRange(minScore: number, maxScore: number): Promise<Transcript[]> {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    return mockTranscripts.filter(
-      t => t.innocenceScore >= minScore && t.innocenceScore <= maxScore
-    );
+  private static extractMetadataFromContent(text: string): {
+    hearingDate: string | null;
+    inmateName: string | null;
+    cdcrNumber: string | null;
+  } {
+    let inmateName: string | null = null;
+    let cdcrNumber: string | null = null;
+    let hearingDate: string | null = null;
+
+    // Extract inmate name from "Hearing of:" pattern
+    // Match "Hearing of:" with flexible whitespace, then capture the name
+    const nameMatch = text.match(/Hearing\s+of:\s*([A-Z][A-Z\s]+?)(?:\n|CDCR)/i);
+    if (nameMatch) {
+      inmateName = nameMatch[1].trim();
+    }
+
+    // Extract CDCR number from "CDCR Number:" pattern
+    const cdcrMatch = text.match(/CDCR\s+Number:\s*([A-Z0-9]+)/i);
+    if (cdcrMatch) {
+      cdcrNumber = cdcrMatch[1].trim();
+    }
+
+    // Extract hearing date - pattern like "FEBRUARY 7, 2025" or "FEBRUARY 7, 2025 8:36 AM"
+    const dateMatch = text.match(/\b(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+(\d{1,2}),?\s+(\d{4})/i);
+    if (dateMatch) {
+      const monthName = dateMatch[1];
+      const day = dateMatch[2];
+      const year = dateMatch[3];
+
+      // Convert to ISO date format (YYYY-MM-DD)
+      const monthMap: { [key: string]: string } = {
+        'JANUARY': '01', 'FEBRUARY': '02', 'MARCH': '03', 'APRIL': '04',
+        'MAY': '05', 'JUNE': '06', 'JULY': '07', 'AUGUST': '08',
+        'SEPTEMBER': '09', 'OCTOBER': '10', 'NOVEMBER': '11', 'DECEMBER': '12'
+      };
+      const month = monthMap[monthName.toUpperCase()];
+      if (month) {
+        hearingDate = `${year}-${month}-${day.padStart(2, '0')}`;
+      }
+    }
+
+    return {
+      hearingDate,
+      inmateName,
+      cdcrNumber,
+    };
+  }
+
+  /**
+   * Filter transcripts by processed status
+   */
+  static async getTranscriptsByStatus(processed: boolean): Promise<Transcript[]> {
+    const { data, error } = await supabase
+      .from('transcripts')
+      .select('*')
+      .eq('processed', processed)
+      .order('uploaded_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching transcripts by status:', error);
+      throw error;
+    }
+
+    return data || [];
   }
 
   /**
    * Get transcript statistics
-   * 
-   * Supabase equivalent:
-   * const { count: totalCount } = await supabase
-   *   .from('transcripts')
-   *   .select('*', { count: 'exact', head: true });
-   * 
-   * const { count: highRiskCount } = await supabase
-   *   .from('transcripts')
-   *   .select('*', { count: 'exact', head: true })
-   *   .gte('innocence_score', 0.7);
    */
   static async getStatistics(): Promise<{
     total: number;
-    highRisk: number;
+    processed: number;
     pending: number;
   }> {
-    await new Promise(resolve => setTimeout(resolve, 100));
+    const { count: total, error: totalError } = await supabase
+      .from('transcripts')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: processed, error: processedError } = await supabase
+      .from('transcripts')
+      .select('*', { count: 'exact', head: true })
+      .eq('processed', true);
+
+    if (totalError || processedError) {
+      console.error('Error fetching statistics:', totalError || processedError);
+      throw totalError || processedError;
+    }
+
     return {
-      total: mockTranscripts.length,
-      highRisk: mockTranscripts.filter(t => t.innocenceScore >= 0.7).length,
-      pending: 3 // Mock value
+      total: total || 0,
+      processed: processed || 0,
+      pending: (total || 0) - (processed || 0),
     };
+  }
+
+  /**
+   * Delete a transcript
+   */
+  static async deleteTranscript(id: string): Promise<{ success: boolean; error?: string }> {
+    const { error } = await supabase
+      .from('transcripts')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting transcript:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
   }
 }

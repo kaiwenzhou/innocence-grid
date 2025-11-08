@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
+import { TranscriptService } from "@/services/transcripts";
 
 const Upload = () => {
   const [isDragging, setIsDragging] = useState(false);
@@ -33,37 +34,55 @@ const Upload = () => {
 
   const handleFiles = (files: FileList) => {
     const file = files[0];
-    if (file && file.type === "application/pdf") {
-      simulateUpload(file);
+    // Accept both text files and PDF files
+    const isValidType =
+      file.type === "text/plain" ||
+      file.type === "application/pdf" ||
+      file.name.endsWith('.txt') ||
+      file.name.endsWith('.pdf');
+
+    if (file && isValidType) {
+      uploadFile(file);
     } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a PDF file",
+        description: "Please upload a text (.txt) or PDF (.pdf) file",
         variant: "destructive",
       });
     }
   };
 
-  const simulateUpload = (file: File) => {
+  const uploadFile = async (file: File) => {
     setIsUploading(true);
     setProgress(0);
-    
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            toast({
-              title: "Upload successful",
-              description: `${file.name} has been analyzed`,
-            });
-            navigate("/transcripts");
-          }, 500);
-          return 100;
-        }
-        return prev + 10;
+
+    try {
+      const result = await TranscriptService.uploadTranscript(file, (progress) => {
+        setProgress(progress);
       });
-    }, 200);
+
+      if (result.success) {
+        toast({
+          title: "Upload successful",
+          description: `${file.name} has been uploaded`,
+        });
+        navigate("/transcripts");
+      } else {
+        toast({
+          title: "Upload failed",
+          description: result.error || "An error occurred during upload",
+          variant: "destructive",
+        });
+        setIsUploading(false);
+      }
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "An error occurred during upload",
+        variant: "destructive",
+      });
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -87,7 +106,7 @@ const Upload = () => {
           >
             <input
               type="file"
-              accept=".pdf"
+              accept=".txt,.pdf"
               className="absolute inset-0 cursor-pointer opacity-0"
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
               disabled={isUploading}
@@ -95,10 +114,10 @@ const Upload = () => {
             
             <UploadIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-lg font-semibold">
-              {isUploading ? "Uploading..." : "Drop your PDF here"}
+              {isUploading ? "Uploading..." : "Drop your transcript here"}
             </h3>
             <p className="text-sm text-muted-foreground">
-              or click to browse files
+              or click to browse files (.txt or .pdf)
             </p>
 
             {isUploading && (
