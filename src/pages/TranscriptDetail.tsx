@@ -2,9 +2,9 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useParams, useNavigate } from "react-router-dom";
-import { Transcript, Claim } from "@/lib/mockData";
+import { Transcript } from "@/lib/types";
 import { TranscriptService } from "@/services/transcripts";
-import { ArrowLeft, AlertTriangle } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Calendar, User, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useEffect, useState } from "react";
@@ -47,48 +47,20 @@ const TranscriptDetail = () => {
     );
   }
 
-  const highlightText = (text: string, claims: Claim[]) => {
-    let lastIndex = 0;
-    const parts: React.ReactNode[] = [];
-
-    // Sort claims by start index
-    const sortedClaims = [...claims].sort((a, b) => a.startIndex - b.startIndex);
-
-    sortedClaims.forEach((claim, idx) => {
-      // Add text before the claim
-      if (claim.startIndex > lastIndex) {
-        parts.push(
-          <span key={`text-${idx}`}>
-            {text.substring(lastIndex, claim.startIndex)}
-          </span>
-        );
-      }
-
-      // Add the highlighted claim
-      parts.push(
-        <mark
-          key={`claim-${idx}`}
-          className="bg-accent/30 text-accent-foreground rounded px-1"
-        >
-          {text.substring(claim.startIndex, claim.endIndex)}
-        </mark>
-      );
-
-      lastIndex = claim.endIndex;
-    });
-
-    // Add remaining text
-    if (lastIndex < text.length) {
-      parts.push(<span key="text-end">{text.substring(lastIndex)}</span>);
-    }
-
-    return parts;
-  };
-
   const getScoreBadge = (score: number) => {
     if (score >= 0.7) return <Badge className="bg-success text-lg">High Risk</Badge>;
     if (score >= 0.5) return <Badge className="bg-warning text-lg">Medium Risk</Badge>;
     return <Badge variant="secondary" className="text-lg">Low Risk</Badge>;
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -103,52 +75,112 @@ const TranscriptDetail = () => {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Transcripts
           </Button>
-          <h1 className="text-3xl font-bold tracking-tight">{transcript.filename}</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{transcript.file_name}</h1>
           <p className="text-muted-foreground">
-            Uploaded on {transcript.dateUploaded}
+            Uploaded on {formatDate(transcript.uploaded_at)}
           </p>
         </div>
 
+        {/* Metadata Card */}
         <Card className="border-border bg-card p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">Innocence Assessment</h2>
-              <div className="flex items-center gap-4">
-                <span className="text-4xl font-bold">
-                  {(transcript.innocenceScore * 100).toFixed(0)}%
-                </span>
-                {getScoreBadge(transcript.innocenceScore)}
+          <h2 className="text-xl font-semibold mb-4">Transcript Information</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {transcript.hearing_date && (
+              <div className="flex items-center gap-3">
+                <Calendar className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Hearing Date</p>
+                  <p className="font-medium">{new Date(transcript.hearing_date).toLocaleDateString()}</p>
+                </div>
               </div>
-            </div>
-            {transcript.innocenceScore >= 0.7 && (
-              <AlertTriangle className="h-12 w-12 text-warning" />
+            )}
+            {transcript.inmate_name && (
+              <div className="flex items-center gap-3">
+                <User className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Inmate Name</p>
+                  <p className="font-medium">{transcript.inmate_name}</p>
+                </div>
+              </div>
+            )}
+            {transcript.cdcr_number && (
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">CDCR Number</p>
+                  <p className="font-medium">{transcript.cdcr_number}</p>
+                </div>
+              </div>
             )}
           </div>
-
-          <Separator className="my-6" />
-
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Extracted Claims</h3>
-            {transcript.claims.map((claim, idx) => (
-              <Card key={idx} className="border-accent/30 bg-accent/5 p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="text-sm mb-2">{claim.text}</p>
-                  </div>
-                  <Badge variant="outline">
-                    {(claim.confidence * 100).toFixed(0)}% confidence
-                  </Badge>
-                </div>
-              </Card>
-            ))}
+          <div className="mt-4">
+            <Badge variant={transcript.processed ? "default" : "secondary"}>
+              {transcript.processed ? "Processed" : "Pending Analysis"}
+            </Badge>
           </div>
         </Card>
 
+        {/* Innocence Assessment Card - Only show if prediction exists */}
+        {transcript.prediction && transcript.prediction.innocence_score !== null && (
+          <Card className="border-border bg-card p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">Innocence Assessment</h2>
+                <div className="flex items-center gap-4">
+                  <span className="text-4xl font-bold">
+                    {(transcript.prediction.innocence_score * 100).toFixed(0)}%
+                  </span>
+                  {getScoreBadge(transcript.prediction.innocence_score)}
+                </div>
+              </div>
+              {transcript.prediction.innocence_score >= 0.7 && (
+                <AlertTriangle className="h-12 w-12 text-warning" />
+              )}
+            </div>
+
+            <Separator className="my-6" />
+
+            {/* Explicit Claims */}
+            {transcript.prediction.explicit_claims && transcript.prediction.explicit_claims.length > 0 && (
+              <div className="space-y-4 mb-6">
+                <h3 className="text-lg font-semibold">Explicit Claims</h3>
+                {transcript.prediction.explicit_claims.map((claim: any, idx: number) => (
+                  <Card key={idx} className="border-accent/30 bg-accent/5 p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <p className="text-sm mb-2">{claim.text || JSON.stringify(claim)}</p>
+                      </div>
+                      {claim.confidence && (
+                        <Badge variant="outline">
+                          {(claim.confidence * 100).toFixed(0)}% confidence
+                        </Badge>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Implicit Signals */}
+            {transcript.prediction.implicit_signals && transcript.prediction.implicit_signals.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Implicit Signals</h3>
+                {transcript.prediction.implicit_signals.map((signal: any, idx: number) => (
+                  <Card key={idx} className="border-border bg-card/50 p-4">
+                    <p className="text-sm">{signal.text || JSON.stringify(signal)}</p>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Full Transcript Card */}
         <Card className="border-border bg-card p-6">
           <h2 className="text-xl font-semibold mb-4">Full Transcript</h2>
           <div className="prose prose-invert max-w-none">
             <div className="whitespace-pre-wrap text-sm leading-relaxed">
-              {highlightText(transcript.content, transcript.claims)}
+              {transcript.raw_text}
             </div>
           </div>
         </Card>

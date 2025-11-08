@@ -98,14 +98,10 @@ export class TranscriptService {
       // Expected format: YYYY-MM-DD_InmateName_CDCRXXXXXX.txt or .pdf
       const metadata = this.extractMetadataFromFilename(file.name);
 
-      // Generate a UUID for the transcript
-      const transcriptId = crypto.randomUUID();
-
-      // Insert the transcript
+      // Insert the transcript (database will generate UUID via DEFAULT)
       const { data, error } = await supabase
         .from('transcripts')
         .insert({
-          id: transcriptId,
           file_name: file.name,
           raw_text: text,
           hearing_date: metadata.hearingDate,
