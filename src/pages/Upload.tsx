@@ -34,16 +34,19 @@ const Upload = () => {
 
   const handleFiles = (files: FileList) => {
     const file = files[0];
-    // For now, only accept text files
-    // PDF support requires text extraction library
-    const isValidType = file.type === "text/plain" || file.name.endsWith('.txt');
+    // Accept both text files and PDF files
+    const isValidType =
+      file.type === "text/plain" ||
+      file.type === "application/pdf" ||
+      file.name.endsWith('.txt') ||
+      file.name.endsWith('.pdf');
 
     if (file && isValidType) {
       uploadFile(file);
     } else {
       toast({
         title: "Invalid file type",
-        description: "Please upload a plain text (.txt) file. PDF support coming soon!",
+        description: "Please upload a text (.txt) or PDF (.pdf) file",
         variant: "destructive",
       });
     }
@@ -103,7 +106,7 @@ const Upload = () => {
           >
             <input
               type="file"
-              accept=".txt"
+              accept=".txt,.pdf"
               className="absolute inset-0 cursor-pointer opacity-0"
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
               disabled={isUploading}
@@ -114,10 +117,7 @@ const Upload = () => {
               {isUploading ? "Uploading..." : "Drop your transcript here"}
             </h3>
             <p className="text-sm text-muted-foreground">
-              or click to browse files (.txt)
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Note: Currently only plain text files are supported. PDF support coming soon.
+              or click to browse files (.txt or .pdf)
             </p>
 
             {isUploading && (

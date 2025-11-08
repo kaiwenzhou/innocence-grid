@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import type { Transcript } from '@/lib/types';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 /**
  * Transcript Service Layer
@@ -44,21 +48,51 @@ export class TranscriptService {
   }
 
   /**
+   * Extract text from PDF file
+   */
+  private static async extractTextFromPDF(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = '';
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += pageText + '\n';
+    }
+
+    return fullText.trim();
+  }
+
+  /**
    * Upload a new transcript
    * Extracts text from file and stores in database
+   * Supports both .txt and .pdf files
    */
   static async uploadTranscript(
     file: File,
     onProgress?: (progress: number) => void
   ): Promise<{ success: boolean; transcriptId?: string; error?: string }> {
     try {
-      // Read the file content as text
-      const text = await file.text();
+      let text: string;
 
-      onProgress?.(50);
+      // Extract text based on file type
+      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+        onProgress?.(10);
+        text = await this.extractTextFromPDF(file);
+        onProgress?.(50);
+      } else {
+        // Plain text file
+        text = await file.text();
+        onProgress?.(50);
+      }
 
       // Extract metadata from filename if possible
-      // Expected format: YYYY-MM-DD_InmateName_CDCRXXXXXX.txt
+      // Expected format: YYYY-MM-DD_InmateName_CDCRXXXXXX.txt or .pdf
       const metadata = this.extractMetadataFromFilename(file.name);
 
       // Insert the transcript
