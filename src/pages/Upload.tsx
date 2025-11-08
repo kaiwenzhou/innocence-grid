@@ -1,16 +1,23 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
-import { Upload as UploadIcon } from "lucide-react";
+import { Upload as UploadIcon, CheckCircle2, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
 import { TranscriptService } from "@/services/transcripts";
 
+interface FileUploadStatus {
+  file: File;
+  progress: number;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  error?: string;
+}
+
 const Upload = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [uploadStatuses, setUploadStatuses] = useState<FileUploadStatus[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -33,55 +40,128 @@ const Upload = () => {
   };
 
   const handleFiles = (files: FileList) => {
-    const file = files[0];
-    // Accept both text files and PDF files
-    const isValidType =
-      file.type === "text/plain" ||
-      file.type === "application/pdf" ||
-      file.name.endsWith('.txt') ||
-      file.name.endsWith('.pdf');
+    const fileArray = Array.from(files);
 
-    if (file && isValidType) {
-      uploadFile(file);
-    } else {
+    // Validate all files
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+
+    fileArray.forEach(file => {
+      const isValidType =
+        file.type === "text/plain" ||
+        file.type === "application/pdf" ||
+        file.name.endsWith('.txt') ||
+        file.name.endsWith('.pdf');
+
+      if (isValidType) {
+        validFiles.push(file);
+      } else {
+        invalidFiles.push(file.name);
+      }
+    });
+
+    if (invalidFiles.length > 0) {
       toast({
-        title: "Invalid file type",
-        description: "Please upload a text (.txt) or PDF (.pdf) file",
+        title: "Some files were skipped",
+        description: `Invalid file type(s): ${invalidFiles.join(', ')}. Only .txt and .pdf files are supported.`,
         variant: "destructive",
       });
     }
+
+    if (validFiles.length > 0) {
+      uploadFiles(validFiles);
+    }
   };
 
-  const uploadFile = async (file: File) => {
+  const uploadFiles = async (files: File[]) => {
     setIsUploading(true);
-    setProgress(0);
 
-    try {
-      const result = await TranscriptService.uploadTranscript(file, (progress) => {
-        setProgress(progress);
-      });
+    // Initialize upload statuses
+    const initialStatuses: FileUploadStatus[] = files.map(file => ({
+      file,
+      progress: 0,
+      status: 'pending' as const,
+    }));
+    setUploadStatuses(initialStatuses);
 
-      if (result.success) {
-        toast({
-          title: "Upload successful",
-          description: `${file.name} has been uploaded`,
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Upload files sequentially
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      // Update status to uploading
+      setUploadStatuses(prev =>
+        prev.map((status, idx) =>
+          idx === i ? { ...status, status: 'uploading' as const } : status
+        )
+      );
+
+      try {
+        const result = await TranscriptService.uploadTranscript(file, (progress) => {
+          setUploadStatuses(prev =>
+            prev.map((status, idx) =>
+              idx === i ? { ...status, progress } : status
+            )
+          );
         });
-        navigate("/transcripts");
-      } else {
-        toast({
-          title: "Upload failed",
-          description: result.error || "An error occurred during upload",
-          variant: "destructive",
-        });
-        setIsUploading(false);
+
+        if (result.success) {
+          successCount++;
+          setUploadStatuses(prev =>
+            prev.map((status, idx) =>
+              idx === i ? { ...status, status: 'success' as const, progress: 100 } : status
+            )
+          );
+        } else {
+          errorCount++;
+          setUploadStatuses(prev =>
+            prev.map((status, idx) =>
+              idx === i
+                ? { ...status, status: 'error' as const, error: result.error || 'Upload failed' }
+                : status
+            )
+          );
+        }
+      } catch (error) {
+        errorCount++;
+        setUploadStatuses(prev =>
+          prev.map((status, idx) =>
+            idx === i
+              ? {
+                  ...status,
+                  status: 'error' as const,
+                  error: error instanceof Error ? error.message : 'An error occurred during upload'
+                }
+              : status
+          )
+        );
       }
-    } catch (error) {
+    }
+
+    setIsUploading(false);
+
+    // Show summary toast
+    if (successCount === files.length) {
       toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "An error occurred during upload",
+        title: "All files uploaded successfully",
+        description: `${successCount} transcript(s) uploaded`,
+      });
+      // Navigate after a short delay to let users see the final status
+      setTimeout(() => navigate("/transcripts"), 1500);
+    } else if (successCount > 0) {
+      toast({
+        title: "Upload partially complete",
+        description: `${successCount} succeeded, ${errorCount} failed`,
         variant: "destructive",
       });
-      setIsUploading(false);
+    } else {
+      toast({
+        title: "Upload failed",
+        description: "All uploads failed",
+        variant: "destructive",
+      });
     }
   };
 
@@ -107,23 +187,51 @@ const Upload = () => {
             <input
               type="file"
               accept=".txt,.pdf"
+              multiple
               className="absolute inset-0 cursor-pointer opacity-0"
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
               disabled={isUploading}
             />
-            
+
             <UploadIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-lg font-semibold">
-              {isUploading ? "Uploading..." : "Drop your transcript here"}
+              {isUploading ? "Uploading..." : "Drop your transcripts here"}
             </h3>
             <p className="text-sm text-muted-foreground">
-              or click to browse files (.txt or .pdf)
+              or click to browse files (.txt or .pdf) - multiple files supported
             </p>
 
-            {isUploading && (
-              <div className="mt-6 space-y-2">
-                <Progress value={progress} className="w-full" />
-                <p className="text-sm text-muted-foreground">{progress}% complete</p>
+            {uploadStatuses.length > 0 && (
+              <div className="mt-6 space-y-3 text-left">
+                {uploadStatuses.map((status, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {status.status === 'success' && (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        )}
+                        {status.status === 'error' && (
+                          <XCircle className="h-4 w-4 text-destructive" />
+                        )}
+                        <span className="text-sm font-medium truncate max-w-[300px]">
+                          {status.file.name}
+                        </span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {status.status === 'pending' && 'Waiting...'}
+                        {status.status === 'uploading' && `${status.progress}%`}
+                        {status.status === 'success' && 'Complete'}
+                        {status.status === 'error' && 'Failed'}
+                      </span>
+                    </div>
+                    {status.status === 'uploading' && (
+                      <Progress value={status.progress} className="w-full" />
+                    )}
+                    {status.status === 'error' && status.error && (
+                      <p className="text-xs text-destructive">{status.error}</p>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
