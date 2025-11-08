@@ -64,6 +64,72 @@ export interface Database {
           model_version?: string | null;
         };
       };
+      inmates: {
+        Row: {
+          id: string;
+          cdcr_number: string;
+          name: string | null;
+          age: number | null;
+          admission_date: string | null;
+          current_location: string | null;
+          commitment_county: string | null;
+          parole_eligible_date: string | null;
+          last_scraped_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          cdcr_number: string;
+          name?: string | null;
+          age?: number | null;
+          admission_date?: string | null;
+          current_location?: string | null;
+          commitment_county?: string | null;
+          parole_eligible_date?: string | null;
+          last_scraped_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          cdcr_number?: string;
+          name?: string | null;
+          age?: number | null;
+          admission_date?: string | null;
+          current_location?: string | null;
+          commitment_county?: string | null;
+          parole_eligible_date?: string | null;
+          last_scraped_at?: string;
+          updated_at?: string;
+        };
+      };
+      board_of_parole_hearings: {
+        Row: {
+          id: number;
+          cdcr_number: string;
+          hearing_date: string | null;
+          action: string | null;
+          status: string | null;
+          outcome: string | null;
+          created_at: string;
+        };
+        Insert: {
+          cdcr_number: string;
+          hearing_date?: string | null;
+          action?: string | null;
+          status?: string | null;
+          outcome?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          cdcr_number?: string;
+          hearing_date?: string | null;
+          action?: string | null;
+          status?: string | null;
+          outcome?: string | null;
+        };
+      };
     };
   };
 }
@@ -89,6 +155,35 @@ export interface Prediction {
   implicit_signals: any[];
   model_version: string | null;
   analyzed_at: string;
+}
+
+export interface Inmate {
+  id: string;
+  cdcr_number: string;
+  name: string | null;
+  age: number | null;
+  admission_date: string | null;
+  current_location: string | null;
+  commitment_county: string | null;
+  parole_eligible_date: string | null;
+  last_scraped_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ParoleHearing {
+  id: number;
+  cdcr_number: string;
+  hearing_date: string | null;
+  action: string | null;
+  status: string | null;
+  outcome: string | null;
+  created_at: string;
+}
+
+export interface TranscriptWithInmate extends Transcript {
+  inmate?: Inmate;
+  parole_hearings?: ParoleHearing[];
 }
 
 /**
