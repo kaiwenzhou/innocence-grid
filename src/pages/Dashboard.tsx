@@ -3,9 +3,20 @@ import { Card } from "@/components/ui/card";
 import { FileText, Upload, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { TranscriptService } from "@/services/transcripts";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const [stats, setStats] = useState({
+    total: 0,
+    highRisk: 0,
+    pending: 0
+  });
+
+  useEffect(() => {
+    TranscriptService.getStatistics().then(setStats);
+  }, []);
 
   return (
     <DashboardLayout>
@@ -20,7 +31,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Cases</p>
-                <p className="text-2xl font-bold">24</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
               </div>
               <FileText className="h-8 w-8 text-primary" />
             </div>
@@ -30,7 +41,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">High Risk Cases</p>
-                <p className="text-2xl font-bold">7</p>
+                <p className="text-2xl font-bold">{stats.highRisk}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-warning" />
             </div>
@@ -40,7 +51,7 @@ const Dashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Pending Review</p>
-                <p className="text-2xl font-bold">3</p>
+                <p className="text-2xl font-bold">{stats.pending}</p>
               </div>
               <Upload className="h-8 w-8 text-accent" />
             </div>

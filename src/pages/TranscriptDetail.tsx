@@ -2,15 +2,37 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useParams, useNavigate } from "react-router-dom";
-import { mockTranscripts, Claim } from "@/lib/mockData";
+import { Transcript, Claim } from "@/lib/mockData";
+import { TranscriptService } from "@/services/transcripts";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useEffect, useState } from "react";
 
 const TranscriptDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const transcript = mockTranscripts.find((t) => t.id === id);
+  const [transcript, setTranscript] = useState<Transcript | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (id) {
+      TranscriptService.getTranscriptById(id).then(data => {
+        setTranscript(data);
+        setLoading(false);
+      });
+    }
+  }, [id]);
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!transcript) {
     return (

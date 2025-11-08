@@ -9,18 +9,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { mockTranscripts } from "@/lib/mockData";
-import { useState } from "react";
+import { Transcript } from "@/lib/mockData";
+import { TranscriptService } from "@/services/transcripts";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 
 const Transcripts = () => {
   const navigate = useNavigate();
+  const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [scoreFilter, setScoreFilter] = useState([0, 1]);
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  useEffect(() => {
+    TranscriptService.getAllTranscripts().then(setTranscripts);
+  }, []);
 
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -31,7 +36,7 @@ const Transcripts = () => {
     }
   };
 
-  const filteredTranscripts = mockTranscripts
+  const filteredTranscripts = transcripts
     .filter(
       (t) => t.innocenceScore >= scoreFilter[0] && t.innocenceScore <= scoreFilter[1]
     )
