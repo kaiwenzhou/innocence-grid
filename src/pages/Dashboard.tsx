@@ -10,7 +10,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     total: 0,
-    highRisk: 0,
+    processed: 0,
     pending: 0
   });
 
@@ -40,10 +40,10 @@ const Dashboard = () => {
           <Card className="border-border bg-card p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">High Risk Cases</p>
-                <p className="text-2xl font-bold">{stats.highRisk}</p>
+                <p className="text-sm font-medium text-muted-foreground">Processed</p>
+                <p className="text-2xl font-bold">{stats.processed}</p>
               </div>
-              <TrendingUp className="h-8 w-8 text-warning" />
+              <TrendingUp className="h-8 w-8 text-success" />
             </div>
           </Card>
 

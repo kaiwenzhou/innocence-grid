@@ -1,8 +1,7 @@
 /**
  * Database Schema Types
- * 
- * These types match the expected Supabase database schema.
- * When migrating to Supabase, create tables matching these types.
+ *
+ * These types match the Supabase database schema.
  */
 
 export interface Database {
@@ -11,64 +10,85 @@ export interface Database {
       transcripts: {
         Row: {
           id: string;
-          filename: string;
-          innocence_score: number;
-          date_uploaded: string;
-          content: string;
-          user_id: string;
-          created_at: string;
-          updated_at: string;
+          file_name: string;
+          raw_text: string;
+          hearing_date: string | null;
+          inmate_name: string | null;
+          cdcr_number: string | null;
+          processed: boolean;
+          uploaded_at: string;
         };
         Insert: {
           id?: string;
-          filename: string;
-          innocence_score: number;
-          date_uploaded?: string;
-          content: string;
-          user_id: string;
-          created_at?: string;
-          updated_at?: string;
+          file_name: string;
+          raw_text: string;
+          hearing_date?: string | null;
+          inmate_name?: string | null;
+          cdcr_number?: string | null;
+          processed?: boolean;
+          uploaded_at?: string;
         };
         Update: {
           id?: string;
-          filename?: string;
-          innocence_score?: number;
-          date_uploaded?: string;
-          content?: string;
-          user_id?: string;
-          updated_at?: string;
+          file_name?: string;
+          raw_text?: string;
+          hearing_date?: string | null;
+          inmate_name?: string | null;
+          cdcr_number?: string | null;
+          processed?: boolean;
         };
       };
-      claims: {
+      predictions: {
         Row: {
-          id: string;
+          id: number;
           transcript_id: string;
-          text: string;
-          confidence: number;
-          start_index: number;
-          end_index: number;
-          created_at: string;
+          innocence_score: number | null;
+          explicit_claims: any; // JSONB
+          implicit_signals: any; // JSONB
+          model_version: string | null;
+          analyzed_at: string;
         };
         Insert: {
-          id?: string;
           transcript_id: string;
-          text: string;
-          confidence: number;
-          start_index: number;
-          end_index: number;
-          created_at?: string;
+          innocence_score?: number | null;
+          explicit_claims?: any;
+          implicit_signals?: any;
+          model_version?: string | null;
+          analyzed_at?: string;
         };
         Update: {
-          id?: string;
           transcript_id?: string;
-          text?: string;
-          confidence?: number;
-          start_index?: number;
-          end_index?: number;
+          innocence_score?: number | null;
+          explicit_claims?: any;
+          implicit_signals?: any;
+          model_version?: string | null;
         };
       };
     };
   };
+}
+
+// Application types
+export interface Transcript {
+  id: string;
+  file_name: string;
+  raw_text: string;
+  hearing_date: string | null;
+  inmate_name: string | null;
+  cdcr_number: string | null;
+  processed: boolean;
+  uploaded_at: string;
+  prediction?: Prediction;
+}
+
+export interface Prediction {
+  id: number;
+  transcript_id: string;
+  innocence_score: number | null;
+  explicit_claims: any[];
+  implicit_signals: any[];
+  model_version: string | null;
+  analyzed_at: string;
 }
 
 /**
