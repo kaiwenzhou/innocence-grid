@@ -94,9 +94,8 @@ export class TranscriptService {
         onProgress?.(50);
       }
 
-      // Extract metadata from filename if possible
-      // Expected format: YYYY-MM-DD_InmateName_CDCRXXXXXX.txt or .pdf
-      const metadata = this.extractMetadataFromFilename(file.name);
+      // Extract metadata from transcript content
+      const metadata = this.extractMetadataFromContent(text);
 
       // Insert the transcript (database will generate UUID via DEFAULT)
       const { data, error } = await supabase
@@ -130,38 +129,57 @@ export class TranscriptService {
   }
 
   /**
-   * Extract metadata from filename
-   * Expected format: YYYY-MM-DD_InmateName_CDCRXXXXXX.txt
+   * Extract metadata from transcript content
+   * Patterns:
+   * - Inmate Name: "Hearing of: RAPHAEL BARRETO"
+   * - CDCR Number: "CDCR Number: V96693"
+   * - Hearing Date: "FEBRUARY 7, 2025"
    */
-  private static extractMetadataFromFilename(filename: string): {
+  private static extractMetadataFromContent(text: string): {
     hearingDate: string | null;
     inmateName: string | null;
     cdcrNumber: string | null;
   } {
-    // Remove file extension
-    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    let inmateName: string | null = null;
+    let cdcrNumber: string | null = null;
+    let hearingDate: string | null = null;
 
-    // Try to match the pattern
-    const parts = nameWithoutExt.split('_');
+    // Extract inmate name from "Hearing of:" pattern
+    // Match "Hearing of:" with flexible whitespace, then capture the name
+    const nameMatch = text.match(/Hearing\s+of:\s*([A-Z][A-Z\s]+?)(?:\n|CDCR)/i);
+    if (nameMatch) {
+      inmateName = nameMatch[1].trim();
+    }
 
-    if (parts.length >= 3) {
-      const [date, name, cdcr] = parts;
+    // Extract CDCR number from "CDCR Number:" pattern
+    const cdcrMatch = text.match(/CDCR\s+Number:\s*([A-Z0-9]+)/i);
+    if (cdcrMatch) {
+      cdcrNumber = cdcrMatch[1].trim();
+    }
 
-      // Validate date format (YYYY-MM-DD)
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      const hearingDate = dateRegex.test(date) ? date : null;
+    // Extract hearing date - pattern like "FEBRUARY 7, 2025" or "FEBRUARY 7, 2025 8:36 AM"
+    const dateMatch = text.match(/\b(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+(\d{1,2}),?\s+(\d{4})/i);
+    if (dateMatch) {
+      const monthName = dateMatch[1];
+      const day = dateMatch[2];
+      const year = dateMatch[3];
 
-      return {
-        hearingDate,
-        inmateName: name || null,
-        cdcrNumber: cdcr || null,
+      // Convert to ISO date format (YYYY-MM-DD)
+      const monthMap: { [key: string]: string } = {
+        'JANUARY': '01', 'FEBRUARY': '02', 'MARCH': '03', 'APRIL': '04',
+        'MAY': '05', 'JUNE': '06', 'JULY': '07', 'AUGUST': '08',
+        'SEPTEMBER': '09', 'OCTOBER': '10', 'NOVEMBER': '11', 'DECEMBER': '12'
       };
+      const month = monthMap[monthName.toUpperCase()];
+      if (month) {
+        hearingDate = `${year}-${month}-${day.padStart(2, '0')}`;
+      }
     }
 
     return {
-      hearingDate: null,
-      inmateName: null,
-      cdcrNumber: null,
+      hearingDate,
+      inmateName,
+      cdcrNumber,
     };
   }
 
