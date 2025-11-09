@@ -100,30 +100,30 @@ function normalizeSpeakerName(speaker: string, inmateName?: string | null): stri
   }
 
   // Common speaker patterns for inmates
-  if (upper.includes('DEFENDANT') ||
-      upper.includes('INMATE') ||
-      upper.includes('INCARCERATED PERSON') ||
-      upper.includes('PRISONER')) {
+  if (normalizedSpeaker.includes('DEFENDANT') ||
+      normalizedSpeaker.includes('INMATE') ||
+      normalizedSpeaker.includes('INCARCERATED PERSON') ||
+      normalizedSpeaker.includes('PRISONER')) {
     return 'INMATE';
   }
 
   // Court officials (judges, commissioners, etc.)
-  if (upper.includes('COURT') ||
-      upper.includes('PRESIDING') ||
-      upper.includes('COMMISSIONER') ||
-      upper.includes('JUDGE')) {
+  if (normalizedSpeaker.includes('COURT') ||
+      normalizedSpeaker.includes('PRESIDING') ||
+      normalizedSpeaker.includes('COMMISSIONER') ||
+      normalizedSpeaker.includes('JUDGE')) {
     return 'COURT';
   }
 
-  if (upper.includes('DEFENSE') || upper.includes('ATTORNEY') || upper.includes('COUNSEL')) {
+  if (normalizedSpeaker.includes('DEFENSE') || normalizedSpeaker.includes('ATTORNEY') || normalizedSpeaker.includes('COUNSEL')) {
     return 'ATTORNEY';
   }
 
-  if (upper.includes('PROSECUTOR') || upper.includes('DISTRICT ATTORNEY') || upper.includes('D.A.')) {
+  if (normalizedSpeaker.includes('PROSECUTOR') || normalizedSpeaker.includes('DISTRICT ATTORNEY') || normalizedSpeaker.includes('D.A.')) {
     return 'PROSECUTOR';
   }
 
-  if (upper.includes('WITNESS')) {
+  if (normalizedSpeaker.includes('WITNESS')) {
     return 'WITNESS';
   }
 
