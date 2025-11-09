@@ -19,35 +19,90 @@ export class TranscriptService {
    * Fetch all transcripts with their predictions
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
-    const { data, error } = await supabase
+    // Fetch all transcripts
+    const { data: transcripts, error: transcriptsError } = await supabase
       .from('transcripts')
       .select('*')
       .order('uploaded_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching transcripts:', error);
-      throw error;
+    if (transcriptsError) {
+      console.error('Error fetching transcripts:', transcriptsError);
+      throw transcriptsError;
     }
 
-    return data || [];
+    if (!transcripts || transcripts.length === 0) {
+      return [];
+    }
+
+    // Fetch all predictions for these transcripts
+    const transcriptIds = transcripts.map(t => t.id);
+    const { data: predictions, error: predictionsError } = await supabase
+      .from('predictions')
+      .select('*')
+      .in('transcript_id', transcriptIds)
+      .order('analyzed_at', { ascending: false });
+
+    if (predictionsError) {
+      console.error('Error fetching predictions:', predictionsError);
+      // Continue without predictions
+    }
+
+    // Map predictions to transcripts (most recent prediction per transcript)
+    const predictionMap = new Map();
+    if (predictions) {
+      for (const pred of predictions) {
+        if (!predictionMap.has(pred.transcript_id)) {
+          predictionMap.set(pred.transcript_id, pred);
+        }
+      }
+    }
+
+    // Combine transcripts with their predictions
+    return transcripts.map(transcript => ({
+      ...transcript,
+      prediction: predictionMap.get(transcript.id) || undefined,
+    }));
   }
 
   /**
    * Fetch a single transcript by ID with its prediction
    */
   static async getTranscriptById(id: string): Promise<Transcript | null> {
-    const { data, error } = await supabase
+    // Fetch transcript
+    const { data: transcript, error: transcriptError } = await supabase
       .from('transcripts')
       .select('*')
       .eq('id', id)
       .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching transcript:', error);
-      throw error;
+    if (transcriptError) {
+      console.error('Error fetching transcript:', transcriptError);
+      throw transcriptError;
     }
 
-    return data;
+    if (!transcript) {
+      return null;
+    }
+
+    // Fetch the most recent prediction for this transcript
+    const { data: prediction, error: predictionError } = await supabase
+      .from('predictions')
+      .select('*')
+      .eq('transcript_id', id)
+      .order('analyzed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (predictionError) {
+      console.error('Error fetching prediction:', predictionError);
+      // Don't throw - just return transcript without prediction
+    }
+
+    // Combine transcript with prediction
+    return {
+      ...transcript,
+      prediction: prediction || undefined,
+    };
   }
 
   /**
