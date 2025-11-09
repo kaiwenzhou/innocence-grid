@@ -55,7 +55,9 @@ export function chunkTranscript(
   const allTurns = parseTranscriptSpeakers(transcript, inmateName);
 
   if (allTurns.length === 0) {
-    return [];
+    // FALLBACK: If no speakers detected, chunk by simple text splitting
+    console.warn('No speakers detected. Using fallback chunking mode.');
+    return createSimpleChunks(transcript, maxChars);
   }
 
   // Identify which turns are from the inmate (for boundary protection)
@@ -63,8 +65,9 @@ export function chunkTranscript(
   const hasAnyInmateSpeech = isInmateTurn.some(x => x);
 
   if (!hasAnyInmateSpeech) {
-    // No inmate speech found
-    return [];
+    // FALLBACK: If no inmate speech found, chunk entire transcript and let Gemini figure it out
+    console.warn('No inmate speech detected. Using fallback chunking mode.');
+    return createSimpleChunks(transcript, maxChars);
   }
 
   // Chunk the ENTIRE transcript, but ensure inmate speech isn't split
@@ -101,6 +104,47 @@ export function chunkTranscript(
   // Add final chunk if there's content
   if (currentChunkTurns.length > 0) {
     chunks.push(createChunkFromIndices(allTurns, currentChunkTurns, transcript));
+  }
+
+  return chunks;
+}
+
+/**
+ * Simple chunking fallback when speaker parsing fails
+ * Just splits by character count at paragraph boundaries
+ */
+function createSimpleChunks(transcript: string, maxChars: number): TranscriptChunk[] {
+  const chunks: TranscriptChunk[] = [];
+  const paragraphs = transcript.split('\n\n');
+
+  let currentChunk = '';
+  let currentStart = 0;
+
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > maxChars && currentChunk.length > 0) {
+      // Create chunk from current content
+      chunks.push({
+        turns: [], // No turn parsing in fallback mode
+        text: currentChunk,
+        startIndex: currentStart,
+        endIndex: currentStart + currentChunk.length,
+      });
+
+      currentStart += currentChunk.length;
+      currentChunk = '';
+    }
+
+    currentChunk += para + '\n\n';
+  }
+
+  // Add final chunk
+  if (currentChunk.length > 0) {
+    chunks.push({
+      turns: [],
+      text: currentChunk,
+      startIndex: currentStart,
+      endIndex: currentStart + currentChunk.length,
+    });
   }
 
   return chunks;
