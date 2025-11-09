@@ -74,8 +74,8 @@ export async function analyzeChunkForInnocenceSignals(
   }
 
   try {
-    // Use Gemini Pro for analysis
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    // Use Gemini 2.5 Flash for analysis
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     // Build the prompt
     let prompt = INNOCENCE_DETECTION_PROMPT + '\n\n';
@@ -192,7 +192,7 @@ export async function testGeminiConnection(): Promise<boolean> {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     const result = await model.generateContent('Hello, respond with "OK" if you can hear me.');
     const response = result.response;
     return response.text().includes('OK');
@@ -208,6 +208,6 @@ export async function testGeminiConnection(): Promise<boolean> {
 export function getModelInfo(): { available: boolean; model: string } {
   return {
     available: !!genAI,
-    model: 'gemini-pro',
+    model: 'gemini-2.5-flash',
   };
 }
