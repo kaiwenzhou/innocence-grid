@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Transcript, InnocenceClaim } from '@/lib/types';
 import { chunkTranscript, createContextSummary } from '@/utils/transcriptChunker';
 import { analyzeChunkForInnocenceSignals, getModelInfo } from './gemini';
+import { debugTranscriptSpeakers } from '@/utils/transcriptDebug';
 
 /**
  * Innocence Detection Service
@@ -100,6 +101,10 @@ export async function analyzeTranscriptForInnocence(
     );
 
     if (chunks.length === 0) {
+      // Run debug to help user understand why no speech was found
+      console.error('No inmate speech found. Running diagnostics...');
+      debugTranscriptSpeakers(transcript.raw_text, transcript.inmate_name);
+
       return {
         success: false,
         transcriptId,
@@ -108,7 +113,7 @@ export async function analyzeTranscriptForInnocence(
         contextualSignals: [],
         biasLanguage: [],
         innocenceScore: 0,
-        error: 'No inmate speech found in transcript',
+        error: 'No inmate speech found in transcript. Check browser console for diagnostic information.',
       };
     }
 
