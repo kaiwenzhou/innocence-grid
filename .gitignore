@@ -170,3 +170,14 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Transcript data files (PDFs and data folders)
+*.pdf
+*.PDF
+transcripts/
+data/
+uploads/
+parole_transcripts/
+*.db
+*.sqlite
+*.sqlite3

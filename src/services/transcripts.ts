@@ -19,73 +19,58 @@ export class TranscriptService {
    * Fetch all transcripts with their predictions
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
-    // Fetch all transcripts
-    const { data: transcripts, error: transcriptsError } = await supabase
+    const { data: transcripts, error } = await supabase
       .from('transcripts')
       .select('*')
       .order('uploaded_at', { ascending: false });
 
-    if (transcriptsError) {
-      console.error('Error fetching transcripts:', transcriptsError);
-      throw transcriptsError;
+    if (error) {
+      console.error('Error fetching transcripts:', error);
+      throw error;
     }
 
-    if (!transcripts || transcripts.length === 0) {
-      return [];
-    }
+    if (!transcripts) return [];
 
-    // Fetch all predictions for these transcripts
-    const transcriptIds = transcripts.map(t => t.id);
-    const { data: predictions, error: predictionsError } = await supabase
-      .from('predictions')
-      .select('*')
-      .in('transcript_id', transcriptIds)
-      .order('analyzed_at', { ascending: false });
+    // Fetch predictions for each transcript (most recent only)
+    const transcriptsWithPredictions = await Promise.all(
+      transcripts.map(async (transcript) => {
+        const { data: prediction } = await supabase
+          .from('predictions')
+          .select('*')
+          .eq('transcript_id', transcript.id)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-    if (predictionsError) {
-      console.error('Error fetching predictions:', predictionsError);
-      // Continue without predictions
-    }
+        return {
+          ...transcript,
+          prediction: prediction || undefined,
+        };
+      })
+    );
 
-    // Map predictions to transcripts (most recent prediction per transcript)
-    const predictionMap = new Map();
-    if (predictions) {
-      for (const pred of predictions) {
-        if (!predictionMap.has(pred.transcript_id)) {
-          predictionMap.set(pred.transcript_id, pred);
-        }
-      }
-    }
-
-    // Combine transcripts with their predictions
-    return transcripts.map(transcript => ({
-      ...transcript,
-      prediction: predictionMap.get(transcript.id) || undefined,
-    }));
+    return transcriptsWithPredictions;
   }
 
   /**
    * Fetch a single transcript by ID with its prediction
    */
   static async getTranscriptById(id: string): Promise<Transcript | null> {
-    // Fetch transcript
-    const { data: transcript, error: transcriptError } = await supabase
+    const { data: transcript, error } = await supabase
       .from('transcripts')
       .select('*')
       .eq('id', id)
       .maybeSingle();
 
-    if (transcriptError) {
-      console.error('Error fetching transcript:', transcriptError);
-      throw transcriptError;
+    if (error) {
+      console.error('Error fetching transcript:', error);
+      throw error;
     }
 
-    if (!transcript) {
-      return null;
-    }
+    if (!transcript) return null;
 
     // Fetch the most recent prediction for this transcript
-    const { data: prediction, error: predictionError } = await supabase
+    const { data: prediction } = await supabase
       .from('predictions')
       .select('*')
       .eq('transcript_id', id)
@@ -93,12 +78,6 @@ export class TranscriptService {
       .limit(1)
       .maybeSingle();
 
-    if (predictionError) {
-      console.error('Error fetching prediction:', predictionError);
-      // Don't throw - just return transcript without prediction
-    }
-
-    // Combine transcript with prediction
     return {
       ...transcript,
       prediction: prediction || undefined,
@@ -184,6 +163,22 @@ export class TranscriptService {
   }
 
   /**
+   * Fix malformed names where single letters are separated by spaces
+   * e.g., "M ICHAEL" -> "MICHAEL", "W ARDELL" -> "WARDELL"
+   */
+  private static fixMalformedName(name: string): string {
+    // Fix pattern where single letter is followed by space then more letters
+    // Match: single uppercase letter + space + uppercase letter(s)
+    // Replace: merge them together
+    let fixed = name.replace(/\b([A-Z])\s+([A-Z][a-z]*)/g, '$1$2');
+    
+    // Also handle multiple spaces
+    fixed = fixed.replace(/\s+/g, ' ').trim();
+    
+    return fixed;
+  }
+
+  /**
    * Extract metadata from transcript content
    * Patterns:
    * - Inmate Name: "Hearing of: RAPHAEL BARRETO"
@@ -203,22 +198,15 @@ export class TranscriptService {
     // Match "Hearing of:" with flexible whitespace, then capture the name
     const nameMatch = text.match(/Hearing\s+of:\s*([A-Z][A-Z\s]+?)(?:\n|CDCR)/i);
     if (nameMatch) {
-      // Normalize: trim and collapse multiple spaces to single space
-      inmateName = nameMatch[1].trim().replace(/\s+/g, ' ');
-    }
-
-    // Also try "BENJAMIN HERNANDEZ, Incarcerated Person" pattern
-    if (!inmateName) {
-      const altNameMatch = text.match(/([A-Z][A-Z\s]+?),\s*Incarcerated\s+Person/i);
-      if (altNameMatch) {
-        inmateName = altNameMatch[1].trim().replace(/\s+/g, ' ');
-      }
+      const rawName = nameMatch[1].trim();
+      // Fix malformed names like "M ICHAEL" -> "MICHAEL"
+      inmateName = this.fixMalformedName(rawName);
     }
 
     // Extract CDCR number from "CDCR Number:" pattern
     const cdcrMatch = text.match(/CDCR\s+Number:\s*([A-Z0-9]+)/i);
     if (cdcrMatch) {
-      cdcrNumber = cdcrMatch[1].trim().replace(/\s+/g, '');
+      cdcrNumber = cdcrMatch[1].trim();
     }
 
     // Extract hearing date - pattern like "FEBRUARY 7, 2025" or "FEBRUARY 7, 2025 8:36 AM"
@@ -251,7 +239,7 @@ export class TranscriptService {
    * Filter transcripts by processed status
    */
   static async getTranscriptsByStatus(processed: boolean): Promise<Transcript[]> {
-    const { data, error } = await supabase
+    const { data: transcripts, error } = await supabase
       .from('transcripts')
       .select('*')
       .eq('processed', processed)
@@ -262,7 +250,27 @@ export class TranscriptService {
       throw error;
     }
 
-    return data || [];
+    if (!transcripts) return [];
+
+    // Fetch predictions for each transcript
+    const transcriptsWithPredictions = await Promise.all(
+      transcripts.map(async (transcript) => {
+        const { data: prediction } = await supabase
+          .from('predictions')
+          .select('*')
+          .eq('transcript_id', transcript.id)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        return {
+          ...transcript,
+          prediction: prediction || undefined,
+        };
+      })
+    );
+
+    return transcriptsWithPredictions;
   }
 
   /**
