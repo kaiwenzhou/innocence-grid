@@ -82,17 +82,18 @@ export function parseTranscriptSpeakers(
  * @returns Normalized speaker category
  */
 function normalizeSpeakerName(speaker: string, inmateName?: string | null): string {
-  const upper = speaker.toUpperCase();
+  // Normalize for case-insensitive, space-insensitive comparison
+  const normalize = (str: string) => str.toUpperCase().replace(/\s+/g, ' ').trim();
 
-  // Normalize spaces for comparison (PDFs often have multiple spaces)
-  const normalizeSpaces = (str: string) => str.replace(/\s+/g, ' ').trim();
+  const normalizedSpeaker = normalize(speaker);
 
-  // Check if this is the inmate
+  // Check if this is the inmate by name
   if (inmateName) {
-    const normalizedInmateName = normalizeSpaces(inmateName.toUpperCase());
-    const normalizedSpeaker = normalizeSpaces(upper);
+    const normalizedInmateName = normalize(inmateName);
 
-    if (normalizedSpeaker.includes(normalizedInmateName) ||
+    // Check exact match or if one contains the other
+    if (normalizedSpeaker === normalizedInmateName ||
+        normalizedSpeaker.includes(normalizedInmateName) ||
         normalizedInmateName.includes(normalizedSpeaker)) {
       return 'INMATE';
     }

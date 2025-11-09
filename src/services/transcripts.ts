@@ -203,13 +203,22 @@ export class TranscriptService {
     // Match "Hearing of:" with flexible whitespace, then capture the name
     const nameMatch = text.match(/Hearing\s+of:\s*([A-Z][A-Z\s]+?)(?:\n|CDCR)/i);
     if (nameMatch) {
-      inmateName = nameMatch[1].trim();
+      // Normalize: trim and collapse multiple spaces to single space
+      inmateName = nameMatch[1].trim().replace(/\s+/g, ' ');
+    }
+
+    // Also try "BENJAMIN HERNANDEZ, Incarcerated Person" pattern
+    if (!inmateName) {
+      const altNameMatch = text.match(/([A-Z][A-Z\s]+?),\s*Incarcerated\s+Person/i);
+      if (altNameMatch) {
+        inmateName = altNameMatch[1].trim().replace(/\s+/g, ' ');
+      }
     }
 
     // Extract CDCR number from "CDCR Number:" pattern
     const cdcrMatch = text.match(/CDCR\s+Number:\s*([A-Z0-9]+)/i);
     if (cdcrMatch) {
-      cdcrNumber = cdcrMatch[1].trim();
+      cdcrNumber = cdcrMatch[1].trim().replace(/\s+/g, '');
     }
 
     // Extract hearing date - pattern like "FEBRUARY 7, 2025" or "FEBRUARY 7, 2025 8:36 AM"
