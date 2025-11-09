@@ -50,9 +50,9 @@ Return a JSON array of innocence claims. Each claim must have:
 ## Important Rules:
 
 1. Only include text SPOKEN BY THE INMATE (not by judges, attorneys, or others)
-2. Quote the inmate's words as accurately as possible - clean up minor stutters, filler words, or formatting issues for readability
+2. Use exact quotes from the transcript - copy word-for-word what the inmate said
 3. Be inclusive - flag anything that could suggest innocence, even if subtle
-4. Each claim should capture the meaningful statement
+4. Each claim should be a distinct statement or exchange
 5. If no innocence signals are found, return an empty array
 
 Return ONLY valid JSON, no additional text or explanation.`;
