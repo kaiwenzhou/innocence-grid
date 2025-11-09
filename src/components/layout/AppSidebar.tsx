@@ -1,4 +1,4 @@
-import { Home, Upload, FileText, Scale } from "lucide-react";
+import { Home, Users, Briefcase, FileText, BarChart3, BookText, TrendingUp, Scale } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 
@@ -16,8 +16,12 @@ import {
 
 const items = [
   { title: "Dashboard", url: "/dashboard", icon: Home },
-  { title: "Upload", url: "/upload", icon: Upload },
+  { title: "Clients", url: "/clients", icon: Users },
+  { title: "Cases", url: "/cases", icon: Briefcase },
   { title: "Transcripts", url: "/transcripts", icon: FileText },
+  { title: "Analyse", url: "/analyze", icon: BarChart3 },
+  { title: "Narratives", url: "/narratives", icon: BookText },
+  { title: "Policy Making Data", url: "/policy-data", icon: TrendingUp },
 ];
 
 export function AppSidebar() {
@@ -32,7 +36,7 @@ export function AppSidebar() {
       <SidebarContent>
         <div className="flex items-center gap-2 px-4 py-4">
           <Scale className="h-6 w-6 text-primary" />
-          {open && <span className="font-bold text-lg">ConvictAnalyzer</span>}
+          {open && <span className="font-bold text-lg">JusticeMAP</span>}
         </div>
 
         <SidebarGroup>

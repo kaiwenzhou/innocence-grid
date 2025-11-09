@@ -16,10 +16,10 @@ const Landing = () => {
               <Scale className="h-16 w-16 text-primary" />
             </div>
             <h1 className="mb-6 text-5xl font-bold tracking-tight text-foreground">
-              Wrongful Conviction Analyzer
+              JusticeMAP
             </h1>
             <p className="mb-8 text-xl text-muted-foreground">
-              Advanced AI-powered analysis of legal transcripts to identify potential wrongful convictions. 
+              Advanced AI-powered analysis of parole hearing transcripts to identify potential wrongful convictions.
               Upload court documents and receive detailed innocence assessments.
             </p>
             <Button 
