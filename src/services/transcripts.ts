@@ -19,7 +19,7 @@ export class TranscriptService {
    * Fetch all transcripts with their predictions
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
-    const { data, error } = await supabase
+    const { data: transcripts, error } = await supabase
       .from('transcripts')
       .select('*')
       .order('uploaded_at', { ascending: false });
@@ -29,14 +29,34 @@ export class TranscriptService {
       throw error;
     }
 
-    return data || [];
+    if (!transcripts) return [];
+
+    // Fetch predictions for each transcript (most recent only)
+    const transcriptsWithPredictions = await Promise.all(
+      transcripts.map(async (transcript) => {
+        const { data: prediction } = await supabase
+          .from('predictions')
+          .select('*')
+          .eq('transcript_id', transcript.id)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        return {
+          ...transcript,
+          prediction: prediction || undefined,
+        };
+      })
+    );
+
+    return transcriptsWithPredictions;
   }
 
   /**
    * Fetch a single transcript by ID with its prediction
    */
   static async getTranscriptById(id: string): Promise<Transcript | null> {
-    const { data, error } = await supabase
+    const { data: transcript, error } = await supabase
       .from('transcripts')
       .select('*')
       .eq('id', id)
@@ -47,7 +67,21 @@ export class TranscriptService {
       throw error;
     }
 
-    return data;
+    if (!transcript) return null;
+
+    // Fetch the most recent prediction for this transcript
+    const { data: prediction } = await supabase
+      .from('predictions')
+      .select('*')
+      .eq('transcript_id', id)
+      .order('analyzed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return {
+      ...transcript,
+      prediction: prediction || undefined,
+    };
   }
 
   /**
@@ -205,7 +239,7 @@ export class TranscriptService {
    * Filter transcripts by processed status
    */
   static async getTranscriptsByStatus(processed: boolean): Promise<Transcript[]> {
-    const { data, error } = await supabase
+    const { data: transcripts, error } = await supabase
       .from('transcripts')
       .select('*')
       .eq('processed', processed)
@@ -216,7 +250,27 @@ export class TranscriptService {
       throw error;
     }
 
-    return data || [];
+    if (!transcripts) return [];
+
+    // Fetch predictions for each transcript
+    const transcriptsWithPredictions = await Promise.all(
+      transcripts.map(async (transcript) => {
+        const { data: prediction } = await supabase
+          .from('predictions')
+          .select('*')
+          .eq('transcript_id', transcript.id)
+          .order('analyzed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        return {
+          ...transcript,
+          prediction: prediction || undefined,
+        };
+      })
+    );
+
+    return transcriptsWithPredictions;
   }
 
   /**
