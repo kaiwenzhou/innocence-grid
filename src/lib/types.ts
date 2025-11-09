@@ -85,10 +85,33 @@ export interface Prediction {
   id: number;
   transcript_id: string;
   innocence_score: number | null;
-  explicit_claims: any[];
-  implicit_signals: any[];
+  explicit_claims: InnocenceClaim[];
+  implicit_signals: InnocenceClaim[];
   model_version: string | null;
   analyzed_at: string;
+}
+
+export interface InnocenceClaim {
+  text: string;
+  signal_type: 'explicit' | 'implicit' | 'contextual' | 'bias_language';
+  confidence: number;
+  start_index: number;
+  end_index: number;
+  explanation?: string;
+}
+
+export interface SpeakerTurn {
+  speaker: string;
+  text: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface TranscriptChunk {
+  turns: SpeakerTurn[];
+  text: string;
+  startIndex: number;
+  endIndex: number;
 }
 
 /**

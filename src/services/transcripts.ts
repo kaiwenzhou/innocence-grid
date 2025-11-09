@@ -19,35 +19,90 @@ export class TranscriptService {
    * Fetch all transcripts with their predictions
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
-    const { data, error } = await supabase
+    // Fetch all transcripts
+    const { data: transcripts, error: transcriptsError } = await supabase
       .from('transcripts')
       .select('*')
       .order('uploaded_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching transcripts:', error);
-      throw error;
+    if (transcriptsError) {
+      console.error('Error fetching transcripts:', transcriptsError);
+      throw transcriptsError;
     }
 
-    return data || [];
+    if (!transcripts || transcripts.length === 0) {
+      return [];
+    }
+
+    // Fetch all predictions for these transcripts
+    const transcriptIds = transcripts.map(t => t.id);
+    const { data: predictions, error: predictionsError } = await supabase
+      .from('predictions')
+      .select('*')
+      .in('transcript_id', transcriptIds)
+      .order('analyzed_at', { ascending: false });
+
+    if (predictionsError) {
+      console.error('Error fetching predictions:', predictionsError);
+      // Continue without predictions
+    }
+
+    // Map predictions to transcripts (most recent prediction per transcript)
+    const predictionMap = new Map();
+    if (predictions) {
+      for (const pred of predictions) {
+        if (!predictionMap.has(pred.transcript_id)) {
+          predictionMap.set(pred.transcript_id, pred);
+        }
+      }
+    }
+
+    // Combine transcripts with their predictions
+    return transcripts.map(transcript => ({
+      ...transcript,
+      prediction: predictionMap.get(transcript.id) || undefined,
+    }));
   }
 
   /**
    * Fetch a single transcript by ID with its prediction
    */
   static async getTranscriptById(id: string): Promise<Transcript | null> {
-    const { data, error } = await supabase
+    // Fetch transcript
+    const { data: transcript, error: transcriptError } = await supabase
       .from('transcripts')
       .select('*')
       .eq('id', id)
       .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching transcript:', error);
-      throw error;
+    if (transcriptError) {
+      console.error('Error fetching transcript:', transcriptError);
+      throw transcriptError;
     }
 
-    return data;
+    if (!transcript) {
+      return null;
+    }
+
+    // Fetch the most recent prediction for this transcript
+    const { data: prediction, error: predictionError } = await supabase
+      .from('predictions')
+      .select('*')
+      .eq('transcript_id', id)
+      .order('analyzed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (predictionError) {
+      console.error('Error fetching prediction:', predictionError);
+      // Don't throw - just return transcript without prediction
+    }
+
+    // Combine transcript with prediction
+    return {
+      ...transcript,
+      prediction: prediction || undefined,
+    };
   }
 
   /**
@@ -148,13 +203,22 @@ export class TranscriptService {
     // Match "Hearing of:" with flexible whitespace, then capture the name
     const nameMatch = text.match(/Hearing\s+of:\s*([A-Z][A-Z\s]+?)(?:\n|CDCR)/i);
     if (nameMatch) {
-      inmateName = nameMatch[1].trim();
+      // Normalize: trim and collapse multiple spaces to single space
+      inmateName = nameMatch[1].trim().replace(/\s+/g, ' ');
+    }
+
+    // Also try "BENJAMIN HERNANDEZ, Incarcerated Person" pattern
+    if (!inmateName) {
+      const altNameMatch = text.match(/([A-Z][A-Z\s]+?),\s*Incarcerated\s+Person/i);
+      if (altNameMatch) {
+        inmateName = altNameMatch[1].trim().replace(/\s+/g, ' ');
+      }
     }
 
     // Extract CDCR number from "CDCR Number:" pattern
     const cdcrMatch = text.match(/CDCR\s+Number:\s*([A-Z0-9]+)/i);
     if (cdcrMatch) {
-      cdcrNumber = cdcrMatch[1].trim();
+      cdcrNumber = cdcrMatch[1].trim().replace(/\s+/g, '');
     }
 
     // Extract hearing date - pattern like "FEBRUARY 7, 2025" or "FEBRUARY 7, 2025 8:36 AM"
