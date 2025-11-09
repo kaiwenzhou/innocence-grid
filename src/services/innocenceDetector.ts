@@ -3,6 +3,7 @@ import type { Transcript, InnocenceClaim } from '@/lib/types';
 import { chunkTranscript, createContextSummary } from '@/utils/transcriptChunker';
 import { analyzeChunkForInnocenceSignals, getModelInfo } from './gemini';
 import { debugTranscriptSpeakers } from '@/utils/transcriptDebug';
+import { preprocessTranscript } from '@/utils/transcriptPreprocessor';
 
 /**
  * Innocence Detection Service
@@ -86,12 +87,22 @@ export async function analyzeTranscriptForInnocence(
       currentChunk: 0,
       totalChunks: 0,
       percentage: 0,
+      status: 'Preprocessing transcript...',
+    });
+
+    // Preprocess: remove line numbers and normalize whitespace
+    const cleanedText = preprocessTranscript(transcript.raw_text);
+
+    onProgress?.({
+      currentChunk: 0,
+      totalChunks: 0,
+      percentage: 5,
       status: 'Chunking transcript...',
     });
 
-    // Chunk the transcript
+    // Chunk the preprocessed transcript
     const chunks = chunkTranscript(
-      transcript.raw_text,
+      cleanedText,
       transcript.inmate_name,
       {
         maxTokens: 8000,
@@ -103,7 +114,7 @@ export async function analyzeTranscriptForInnocence(
     if (chunks.length === 0) {
       // Run debug to help user understand why no speech was found
       console.error('No inmate speech found. Running diagnostics...');
-      debugTranscriptSpeakers(transcript.raw_text, transcript.inmate_name);
+      debugTranscriptSpeakers(cleanedText, transcript.inmate_name);
 
       return {
         success: false,
