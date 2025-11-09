@@ -15,8 +15,9 @@ import type { SpeakerTurn } from '@/lib/types';
  * - "PROSECUTOR:" or "DISTRICT ATTORNEY:"
  * - "WITNESS [NAME]:"
  * - All caps speaker name followed by colon
+ * - Handles line numbers: "1  SPEAKER NAME:"
  */
-const SPEAKER_PATTERN = /^([A-Z][A-Z\s\.\-,]+?):\s*/gm;
+const SPEAKER_PATTERN = /^(?:\d+\s+)?([A-Z][A-Z\s\.\-,]+?):\s*/gm;
 
 /**
  * Alternative pattern for speakers with parenthetical descriptions

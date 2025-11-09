@@ -58,63 +58,49 @@ export function chunkTranscript(
     return [];
   }
 
-  // Find all inmate turn indices
-  const inmateTurnIndices = allTurns
-    .map((turn, index) => (turn.speaker === 'INMATE' ? index : -1))
-    .filter(index => index !== -1);
+  // Identify which turns are from the inmate (for boundary protection)
+  const isInmateTurn = allTurns.map(turn => turn.speaker === 'INMATE');
+  const hasAnyInmateSpeech = isInmateTurn.some(x => x);
 
-  if (inmateTurnIndices.length === 0) {
-    // No inmate turns found, return empty chunks
-    // or optionally return the whole transcript as one chunk
+  if (!hasAnyInmateSpeech) {
+    // No inmate speech found
     return [];
   }
 
-  // Group inmate turns into chunks with context
+  // Chunk the ENTIRE transcript, but ensure inmate speech isn't split
   const chunks: TranscriptChunk[] = [];
-  let currentChunkIndices: number[] = [];
+  let currentChunkTurns: number[] = [];
   let currentChunkSize = 0;
 
-  for (let i = 0; i < inmateTurnIndices.length; i++) {
-    const inmateTurnIndex = inmateTurnIndices[i];
+  for (let i = 0; i < allTurns.length; i++) {
+    const turnSize = allTurns[i].text.length;
 
-    // Calculate range with context
-    const startIndex = Math.max(0, inmateTurnIndex - fullConfig.contextTurns);
-    const endIndex = Math.min(
-      allTurns.length - 1,
-      inmateTurnIndex + fullConfig.contextTurns
-    );
+    // Check if adding this turn would exceed the max size
+    const wouldExceed = currentChunkSize + turnSize > maxChars;
 
-    // Get all turn indices in this range
-    const rangeIndices: number[] = [];
-    for (let j = startIndex; j <= endIndex; j++) {
-      rangeIndices.push(j);
-    }
+    // If we would exceed AND we have content, create a chunk
+    if (wouldExceed && currentChunkTurns.length > 0) {
+      // But ONLY if we're not in the middle of inmate speech!
+      // Look ahead: if next turn is also inmate speech, don't split
+      const currentIsInmate = isInmateTurn[i];
+      const previousIsInmate = i > 0 ? isInmateTurn[i - 1] : false;
 
-    // Calculate size of this range
-    const rangeSize = rangeIndices.reduce((sum, idx) => {
-      return sum + allTurns[idx].text.length;
-    }, 0);
-
-    // Check if adding this range would exceed max size
-    if (currentChunkSize + rangeSize > maxChars && currentChunkIndices.length > 0) {
-      // Create chunk from current indices
-      chunks.push(createChunkFromIndices(allTurns, currentChunkIndices, transcript));
-      currentChunkIndices = [];
-      currentChunkSize = 0;
-    }
-
-    // Add range indices to current chunk (avoiding duplicates)
-    for (const idx of rangeIndices) {
-      if (!currentChunkIndices.includes(idx)) {
-        currentChunkIndices.push(idx);
-        currentChunkSize += allTurns[idx].text.length;
+      // Only create chunk if we're at a good boundary (not splitting inmate speech)
+      if (!currentIsInmate || !previousIsInmate) {
+        chunks.push(createChunkFromIndices(allTurns, currentChunkTurns, transcript));
+        currentChunkTurns = [];
+        currentChunkSize = 0;
       }
     }
+
+    // Add current turn to chunk
+    currentChunkTurns.push(i);
+    currentChunkSize += turnSize;
   }
 
-  // Add remaining chunk
-  if (currentChunkIndices.length > 0) {
-    chunks.push(createChunkFromIndices(allTurns, currentChunkIndices, transcript));
+  // Add final chunk if there's content
+  if (currentChunkTurns.length > 0) {
+    chunks.push(createChunkFromIndices(allTurns, currentChunkTurns, transcript));
   }
 
   return chunks;
