@@ -1,0 +1,41 @@
+# ==================================================
+# ENVIRONMENT VARIABLES TEMPLATE
+# ==================================================
+# 
+# CREATE A FILE NAMED ".env" IN THE PROJECT ROOT
+# AND PASTE THE FOLLOWING CONTENT:
+#
+# ==================================================
+
+VITE_SUPABASE_URL=your_supabase_project_url_here
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+
+# ==================================================
+# HOW TO GET THESE VALUES:
+# ==================================================
+# 
+# 1. Go to https://supabase.com/dashboard
+# 2. Select your project
+# 3. Click the gear icon (Project Settings)
+# 4. Click "API" in the left menu
+# 5. Copy:
+#    - Project URL → paste as VITE_SUPABASE_URL
+#    - anon/public key → paste as VITE_SUPABASE_ANON_KEY
+#
+# EXAMPLE VALUES:
+# VITE_SUPABASE_URL=https://abcdefghijklmnop.supabase.co
+# VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFiY2RlZmdoaWprbG1ub3AiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYzMjc1ODY5NCwiZXhwIjoxOTQ4MzM0Njk0fQ.abcdefghijklmnopqrstuvwxyz123456789
+#
+# ==================================================
+# QUICK COMMAND TO CREATE .env FILE:
+# ==================================================
+#
+# On Mac/Linux:
+# cat > .env << 'EOF'
+# VITE_SUPABASE_URL=your_actual_url_here
+# VITE_SUPABASE_ANON_KEY=your_actual_key_here
+# EOF
+#
+# Or simply create a file named .env and paste your values
+#
+

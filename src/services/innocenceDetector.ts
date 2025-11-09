@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase';
 import type { Transcript, InnocenceClaim } from '@/lib/types';
 import { chunkTranscript, createContextSummary } from '@/utils/transcriptChunker';
 import { analyzeChunkForInnocenceSignals, getModelInfo } from './gemini';
-import { debugTranscriptSpeakers } from '@/utils/transcriptDebug';
 import { preprocessTranscript } from '@/utils/transcriptPreprocessor';
 
 /**
@@ -114,7 +113,8 @@ export async function analyzeTranscriptForInnocence(
     if (chunks.length === 0) {
       // Run debug to help user understand why no speech was found
       console.error('No inmate speech found. Running diagnostics...');
-      debugTranscriptSpeakers(cleanedText, transcript.inmate_name);
+      console.error('Transcript preview:', cleanedText.substring(0, 500));
+      console.error('Inmate name:', transcript.inmate_name);
 
       return {
         success: false,
@@ -363,4 +363,47 @@ export async function batchAnalyzeTranscripts(
   }
 
   return results;
+}
+
+/**
+ * Service class wrapper for innocence detection
+ * Provides a class-based API for easier integration with React components
+ */
+export class InnocenceDetectorService {
+  /**
+   * Analyze a transcript for innocence signals
+   * @param transcriptId - ID of the transcript
+   * @param rawText - Raw transcript text (optional, will be fetched if not provided)
+   * @param onProgress - Progress callback
+   */
+  static async analyzeTranscript(
+    transcriptId: string,
+    rawText?: string,
+    onProgress?: (percentage: number) => void
+  ): Promise<AnalysisResult> {
+    const progressCallback = onProgress
+      ? (progress: AnalysisProgress) => {
+          onProgress(progress.percentage);
+        }
+      : undefined;
+
+    return analyzeTranscriptForInnocence(transcriptId, progressCallback);
+  }
+
+  /**
+   * Get analysis results for a transcript
+   */
+  static async getResults(transcriptId: string) {
+    return getAnalysisResults(transcriptId);
+  }
+
+  /**
+   * Batch analyze multiple transcripts
+   */
+  static async analyzeBatch(
+    transcriptIds: string[],
+    onProgress?: (completed: number, total: number) => void
+  ) {
+    return batchAnalyzeTranscripts(transcriptIds, onProgress);
+  }
 }
