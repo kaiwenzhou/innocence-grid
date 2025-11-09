@@ -16,12 +16,17 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 export class TranscriptService {
   /**
-   * Fetch all transcripts with their predictions
+   * Fetch all transcripts with their predictions (OPTIMIZED)
+   * Uses a single query with JOIN instead of N+1 queries
    */
   static async getAllTranscripts(): Promise<Transcript[]> {
+    // Use a single query with JOIN to avoid N+1 problem
     const { data: transcripts, error } = await supabase
       .from('transcripts')
-      .select('*')
+      .select(`
+        *,
+        predictions:predictions(*)
+      `)
       .order('uploaded_at', { ascending: false });
 
     if (error) {
@@ -31,25 +36,21 @@ export class TranscriptService {
 
     if (!transcripts) return [];
 
-    // Fetch predictions for each transcript (most recent only)
-    const transcriptsWithPredictions = await Promise.all(
-      transcripts.map(async (transcript) => {
-        const { data: prediction } = await supabase
-          .from('predictions')
-          .select('*')
-          .eq('transcript_id', transcript.id)
-          .order('analyzed_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+    // Map to expected format - take most recent prediction if multiple exist
+    return transcripts.map((transcript: any) => {
+      const predictions = transcript.predictions || [];
+      const mostRecentPrediction = predictions.length > 0
+        ? predictions.sort((a: any, b: any) => 
+            new Date(b.analyzed_at).getTime() - new Date(a.analyzed_at).getTime()
+          )[0]
+        : undefined;
 
-        return {
-          ...transcript,
-          prediction: prediction || undefined,
-        };
-      })
-    );
-
-    return transcriptsWithPredictions;
+      return {
+        ...transcript,
+        predictions: undefined, // Remove the array
+        prediction: mostRecentPrediction,
+      };
+    });
   }
 
   /**
@@ -116,11 +117,39 @@ export class TranscriptService {
   ): Promise<{ success: boolean; transcriptId?: string; error?: string }> {
     try {
       let text: string;
+      let pdfUrl: string | null = null;
+      const isPDF = file.type === 'application/pdf' || file.name.endsWith('.pdf');
 
       // Extract text based on file type
-      if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      if (isPDF) {
         onProgress?.(10);
         text = await this.extractTextFromPDF(file);
+        onProgress?.(30);
+        
+        // Upload PDF to Supabase storage
+        try {
+          const fileName = `${Date.now()}-${file.name}`;
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('transcript-pdfs')
+            .upload(fileName, file, {
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (uploadError) {
+            console.warn('PDF upload to storage failed:', uploadError);
+            // Continue anyway - we still have the text
+          } else {
+            // Get public URL
+            const { data: urlData } = supabase.storage
+              .from('transcript-pdfs')
+              .getPublicUrl(fileName);
+            pdfUrl = urlData.publicUrl;
+          }
+        } catch (storageErr) {
+          console.warn('Storage error (non-fatal):', storageErr);
+          // Continue - text extraction succeeded
+        }
         onProgress?.(50);
       } else {
         // Plain text file
@@ -141,6 +170,8 @@ export class TranscriptService {
           inmate_name: metadata.inmateName,
           cdcr_number: metadata.cdcrNumber,
           processed: false,
+          pdf_url: pdfUrl,
+          pdf_file_size: isPDF ? file.size : null,
         })
         .select()
         .single();
@@ -300,6 +331,35 @@ export class TranscriptService {
       processed: processed || 0,
       pending: (total || 0) - (processed || 0),
     };
+  }
+
+  /**
+   * Update transcript status and metadata
+   */
+  static async updateTranscript(
+    id: string,
+    updates: {
+      status?: string;
+      processed?: boolean;
+      form_data?: any;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('transcripts')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating transcript:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Update failed',
+      };
+    }
   }
 
   /**

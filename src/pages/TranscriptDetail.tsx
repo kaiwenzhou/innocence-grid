@@ -5,10 +5,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Transcript } from "@/lib/types";
 import { TranscriptService } from "@/services/transcripts";
 import { InnocenceDetectorService } from "@/services/innocenceDetector";
-import { ArrowLeft, AlertTriangle, Calendar, User, FileText, Sparkles } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Calendar, User, FileText, Sparkles, Download, ExternalLink, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 
@@ -99,6 +99,73 @@ const TranscriptDetail = () => {
     });
   };
 
+  // Format transcript text into clean, readable format with speaker labels
+  const formatTranscriptText = (text: string) => {
+    if (!text) return [];
+    
+    const lines = text.split('\n');
+    const formatted: Array<{ speaker: string; text: string; lineNumber: number }> = [];
+    let currentSpeaker = '';
+    let currentText = '';
+    let lineNumber = 0;
+    
+    lines.forEach((line, idx) => {
+      lineNumber = idx + 1;
+      const trimmed = line.trim();
+      
+      // Detect speaker labels (e.g., "COMMISSIONER SHEFFIELD:", "ATTORNEY UKAH:")
+      const speakerMatch = trimmed.match(/^([A-Z][A-Z\s]+(?:COMMISSIONER|ATTORNEY|PRESIDING|DEPUTY|INMATE|APPLICANT|MR\.|MS\.|DR\.)[A-Z\s]*?):\s*(.*)$/i);
+      
+      if (speakerMatch) {
+        // Save previous speaker's text
+        if (currentSpeaker && currentText.trim()) {
+          formatted.push({ speaker: currentSpeaker, text: currentText.trim(), lineNumber: lineNumber - 1 });
+        }
+        
+        // Start new speaker
+        currentSpeaker = speakerMatch[1].trim();
+        currentText = speakerMatch[2];
+      } else if (currentSpeaker && trimmed) {
+        // Continue current speaker's text
+        currentText += ' ' + trimmed;
+      } else if (!currentSpeaker && trimmed) {
+        // Text without speaker (header info, etc.)
+        formatted.push({ speaker: '', text: trimmed, lineNumber });
+      }
+    });
+    
+    // Add last speaker
+    if (currentSpeaker && currentText.trim()) {
+      formatted.push({ speaker: currentSpeaker, text: currentText.trim(), lineNumber });
+    }
+    
+    return formatted;
+  };
+
+  // Find line number where text appears in transcript
+  const findLineNumber = (searchText: string, rawText: string): number => {
+    if (!searchText || !rawText) return 0;
+    
+    const lines = rawText.split('\n');
+    const searchLower = searchText.toLowerCase().substring(0, 50); // Use first 50 chars for matching
+    
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes(searchLower)) {
+        return i + 1;
+      }
+    }
+    return 0;
+  };
+
+  // Estimate page number (assuming ~50 lines per page)
+  const estimatePageNumber = (lineNumber: number): number => {
+    return Math.ceil(lineNumber / 50);
+  };
+
+  const formattedTranscript = useMemo(() => {
+    return transcript ? formatTranscriptText(transcript.raw_text) : [];
+  }, [transcript]);
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -149,10 +216,23 @@ const TranscriptDetail = () => {
               </div>
             )}
           </div>
-          <div className="mt-4 flex items-center gap-4">
+          <div className="mt-4 flex items-center gap-4 flex-wrap">
             <Badge variant={transcript.processed ? "default" : "secondary"}>
               {transcript.processed ? "Processed" : "Pending Analysis"}
             </Badge>
+            
+            {/* PDF Download Button */}
+            {transcript.file_name && transcript.file_name.endsWith('.pdf') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => toast.info("PDF download feature coming soon - original file available in storage")}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download Original PDF
+              </Button>
+            )}
+            
             {!transcript.prediction && (
               <Button
                 onClick={handleAnalyze}
@@ -199,20 +279,32 @@ const TranscriptDetail = () => {
             {transcript.prediction.explicit_claims && transcript.prediction.explicit_claims.length > 0 && (
               <div className="space-y-4 mb-6">
                 <h3 className="text-lg font-semibold">Explicit Claims</h3>
-                {transcript.prediction.explicit_claims.map((claim: any, idx: number) => (
-                  <Card key={idx} className="border-accent/30 bg-accent/5 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <p className="text-sm mb-2">{claim.text || JSON.stringify(claim)}</p>
+                {transcript.prediction.explicit_claims.map((claim: any, idx: number) => {
+                  const claimText = claim.text || JSON.stringify(claim);
+                  const lineNum = findLineNumber(claimText, transcript.raw_text);
+                  const pageNum = estimatePageNumber(lineNum);
+                  
+                  return (
+                    <Card key={idx} className="border-accent/30 bg-accent/5 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <p className="text-sm mb-2">{claimText}</p>
+                          {lineNum > 0 && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-2">
+                              <MapPin className="h-3 w-3" />
+                              Found at Line {lineNum}, Page ~{pageNum}
+                            </p>
+                          )}
+                        </div>
+                        {claim.confidence && (
+                          <Badge variant="outline">
+                            {(claim.confidence * 100).toFixed(0)}% confidence
+                          </Badge>
+                        )}
                       </div>
-                      {claim.confidence && (
-                        <Badge variant="outline">
-                          {(claim.confidence * 100).toFixed(0)}% confidence
-                        </Badge>
-                      )}
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
             )}
 
@@ -220,11 +312,25 @@ const TranscriptDetail = () => {
             {transcript.prediction.implicit_signals && transcript.prediction.implicit_signals.length > 0 && (
               <div className="space-y-4 mb-6">
                 <h3 className="text-lg font-semibold">Implicit Signals</h3>
-                {transcript.prediction.implicit_signals.map((signal: any, idx: number) => (
-                  <Card key={idx} className="border-border bg-card/50 p-4">
-                    <p className="text-sm">{signal.text || JSON.stringify(signal)}</p>
-                  </Card>
-                ))}
+                {transcript.prediction.implicit_signals.map((signal: any, idx: number) => {
+                  const signalText = signal.text || JSON.stringify(signal);
+                  const lineNum = findLineNumber(signalText, transcript.raw_text);
+                  const pageNum = estimatePageNumber(lineNum);
+                  
+                  return (
+                    <Card key={idx} className="border-border bg-card/50 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <p className="text-sm flex-1">{signalText}</p>
+                        {lineNum > 0 && (
+                          <Badge variant="outline" className="flex items-center gap-1 shrink-0">
+                            <MapPin className="h-3 w-3" />
+                            Line {lineNum}, Page ~{pageNum}
+                          </Badge>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             )}
 
@@ -232,11 +338,25 @@ const TranscriptDetail = () => {
             {transcript.prediction.contextual_signals && transcript.prediction.contextual_signals.length > 0 && (
               <div className="space-y-4 mb-6">
                 <h3 className="text-lg font-semibold">Contextual Signals</h3>
-                {transcript.prediction.contextual_signals.map((signal: any, idx: number) => (
-                  <Card key={idx} className="border-primary/30 bg-primary/5 p-4">
-                    <p className="text-sm">{signal.text || JSON.stringify(signal)}</p>
-                  </Card>
-                ))}
+                {transcript.prediction.contextual_signals.map((signal: any, idx: number) => {
+                  const signalText = signal.text || JSON.stringify(signal);
+                  const lineNum = findLineNumber(signalText, transcript.raw_text);
+                  const pageNum = estimatePageNumber(lineNum);
+                  
+                  return (
+                    <Card key={idx} className="border-primary/30 bg-primary/5 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <p className="text-sm flex-1">{signalText}</p>
+                        {lineNum > 0 && (
+                          <Badge variant="outline" className="flex items-center gap-1 shrink-0">
+                            <MapPin className="h-3 w-3" />
+                            Line {lineNum}, Page ~{pageNum}
+                          </Badge>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             )}
 
@@ -244,23 +364,79 @@ const TranscriptDetail = () => {
             {transcript.prediction.bias_language && transcript.prediction.bias_language.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-lg font-semibold">Bias Language Detected</h3>
-                {transcript.prediction.bias_language.map((signal: any, idx: number) => (
-                  <Card key={idx} className="border-warning/30 bg-warning/5 p-4">
-                    <p className="text-sm">{signal.text || JSON.stringify(signal)}</p>
-                  </Card>
-                ))}
+                {transcript.prediction.bias_language.map((signal: any, idx: number) => {
+                  const signalText = signal.text || JSON.stringify(signal);
+                  const lineNum = findLineNumber(signalText, transcript.raw_text);
+                  const pageNum = estimatePageNumber(lineNum);
+                  
+                  return (
+                    <Card key={idx} className="border-warning/30 bg-warning/5 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <p className="text-sm flex-1">{signalText}</p>
+                        {lineNum > 0 && (
+                          <Badge variant="outline" className="flex items-center gap-1 shrink-0">
+                            <MapPin className="h-3 w-3" />
+                            Line {lineNum}, Page ~{pageNum}
+                          </Badge>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </Card>
         )}
 
-        {/* Full Transcript Card */}
+        {/* Full Transcript Card - Clean Formatted Version */}
         <Card className="border-border bg-card p-6">
-          <h2 className="text-xl font-semibold mb-4">Full Transcript</h2>
-          <div className="prose prose-invert max-w-none">
-            <div className="whitespace-pre-wrap text-sm leading-relaxed">
-              {transcript.raw_text}
-            </div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold">Full Transcript</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const element = document.createElement('a');
+                const file = new Blob([transcript.raw_text], { type: 'text/plain' });
+                element.href = URL.createObjectURL(file);
+                element.download = `${transcript.file_name || 'transcript'}.txt`;
+                document.body.appendChild(element);
+                element.click();
+                document.body.removeChild(element);
+              }}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export as Text
+            </Button>
+          </div>
+          
+          <div className="space-y-4 max-h-[800px] overflow-y-auto">
+            {formattedTranscript.map((section, idx) => (
+              <div key={idx} className="border-l-2 border-primary/30 pl-4 py-2">
+                {section.speaker && (
+                  <div className="flex items-baseline gap-2 mb-1">
+                    <span className="font-bold text-primary text-sm uppercase">
+                      {section.speaker}:
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Line {section.lineNumber}
+                    </span>
+                  </div>
+                )}
+                <p className="text-sm leading-relaxed text-foreground/90">
+                  {section.text}
+                </p>
+              </div>
+            ))}
+          </div>
+          
+          <Separator className="my-6" />
+          
+          <div className="bg-muted/30 p-4 rounded-lg">
+            <p className="text-xs text-muted-foreground flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Original transcript has been formatted for readability. Speaker labels and content are preserved from the source document.
+            </p>
           </div>
         </Card>
       </div>

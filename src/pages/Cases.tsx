@@ -7,9 +7,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { TranscriptService } from "@/services/transcripts";
-import { Transcript } from "@/lib/types";
+import { CommissionerService } from "@/services/commissioners";
+import { Transcript, Commissioner } from "@/lib/types";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, ExternalLink } from "lucide-react";
 
 // Commissioner background database (based on your research)
 const COMMISSIONER_BACKGROUNDS: Record<string, { category: string; details: string }> = {
@@ -102,44 +103,96 @@ const Cases = () => {
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [commissioners, setCommissioners] = useState<string[]>([]);
+  const [commissionerData, setCommissionerData] = useState<Commissioner[]>([]);
 
   // Extract commissioner names from transcript text
   const extractCommissioners = useCallback((text: string): string[] => {
     const names = new Set<string>();
     
-    // Pattern 1: "EMILY SHEFFIELD, Presiding Commissioner" (at start of transcript)
-    const panelPattern1 = /^([A-Z]+(?:\s+[A-Z]+)+),\s+(?:Presiding|Deputy)\s+Commissioner/gim;
+    // Invalid words that should disqualify a name
+    const invalidWords = ['AND', 'OR', 'THE', 'A', 'AN', 'OF', 'WILL', 'IDENTIFY', 'OURSELVES', 'OTHERS', 'PRESENT'];
     
-    // Pattern 2: "PRESIDING COMMISSIONER SHEFFIELD" (in dialogue)
-    const panelPattern2 = /(?:PRESIDING|DEPUTY)\s+COMMISSIONER\s+([A-Z]+(?:\s+[A-Z]+)?)[:\s]/gi;
+    // Helper to validate a name
+    const isValidName = (name: string): boolean => {
+      const words = name.trim().split(/\s+/);
+      
+      // Must be 2-4 words
+      if (words.length < 2 || words.length > 4) return false;
+      
+      // Check for invalid words
+      for (const word of words) {
+        if (invalidWords.includes(word.toUpperCase())) return false;
+      }
+      
+      // Each word should be at least 2 characters
+      for (const word of words) {
+        if (word.length < 2) return false;
+      }
+      
+      // Should not contain numbers
+      if (/\d/.test(name)) return false;
+      
+      // Reject common non-name phrases
+      const upperName = name.toUpperCase();
+      if (upperName === 'OTHERS PRESENT' || upperName === 'AM PANEL' || upperName === 'PANEL PRESENT') {
+        return false;
+      }
+      
+      return true;
+    };
     
-    // Pattern 3: Look specifically in "PANEL PRESENT:" section
-    const panelSectionMatch = text.match(/PANEL PRESENT:?\s*([\s\S]*?)(?:OTHERS PRESENT|$)/i);
+    // Pattern 1: Look in "PANEL PRESENT" or "AM PANEL PRESENT" section (before "OTHERS PRESENT")
+    const panelSectionMatch = text.match(/(?:AM\s+)?PANEL\s+PRESENT:?\s*([\s\S]*?)(?:OTHERS PRESENT|DEPUTY COMMISSIONER CHAMBERS|$)/i);
     if (panelSectionMatch) {
       const panelSection = panelSectionMatch[1];
       
-      // Extract names before "Commissioner" in panel section
-      const sectionMatches = panelSection.matchAll(/([A-Z]+(?:\s+[A-Z]+)+),?\s+(?:Presiding|Deputy)\s+Commissioner/gi);
+      // Extract names before "Commissioner" - handle both formats:
+      // Format 1: "EMILY SHEFFIELD, Presiding Commissioner"
+      // Format 2: "EMILY SHEFFIELD, Presiding Commissioner NEAL CHAMBERS, Deputy Commissioner:"
+      const sectionMatches = panelSection.matchAll(/([A-Z][A-Z\s]+?),?\s+(?:Presiding|Deputy)\s+Commissioner/gi);
       for (const match of sectionMatches) {
         const name = match[1].trim().toUpperCase();
-        // Only add if it's a reasonable name length (2-4 words)
-        const wordCount = name.split(/\s+/).length;
-        if (wordCount >= 2 && wordCount <= 4) {
+        if (isValidName(name)) {
           names.add(name);
         }
       }
     }
     
-    // Fallback: Extract from dialogue headers (only if we found no names in panel section)
-    if (names.size === 0) {
-      const dialogueMatches = text.matchAll(panelPattern2);
-      for (const match of dialogueMatches) {
-        const name = match[1].trim().toUpperCase();
-        names.add(name);
+    // Pattern 2: Also check in dialogue headers for additional commissioners
+    const dialoguePattern = /(?:PRESIDING|DEPUTY)\s+COMMISSIONER\s+([A-Z]+(?:\s+[A-Z]+)?)[:\s]/gi;
+    const dialogueMatches = text.matchAll(dialoguePattern);
+    for (const match of dialogueMatches) {
+      const lastName = match[1].trim().toUpperCase();
+      
+      // Try to find the full name from the panel section
+      const fullNameMatch = text.match(new RegExp(`([A-Z]+(?:\\s+[A-Z]+)?\\s+${lastName})(?:,|\\s)`, 'i'));
+      if (fullNameMatch) {
+        const fullName = fullNameMatch[1].trim().toUpperCase();
+        if (isValidName(fullName)) {
+          names.add(fullName);
+        }
+      } else if (isValidName(lastName)) {
+        names.add(lastName);
       }
     }
     
-    return Array.from(names);
+    // Remove any remaining invalid entries
+    const validNames = Array.from(names).filter(name => isValidName(name));
+    
+    return validNames;
+  }, []);
+
+  // Load commissioners from database
+  useEffect(() => {
+    const loadCommissioners = async () => {
+      try {
+        const data = await CommissionerService.getAllCommissioners();
+        setCommissionerData(data);
+      } catch (error) {
+        console.error("Error loading commissioners:", error);
+      }
+    };
+    loadCommissioners();
   }, []);
 
   useEffect(() => {
@@ -215,15 +268,43 @@ const Cases = () => {
     return patterns.some((pattern) => pattern.test(text));
   };
 
+  // Helper function to find commissioner in database by name
+  const findCommissionerInDatabase = (name: string) => {
+    // Try exact match first
+    let found = commissionerData.find(
+      (c) => c.full_name?.toUpperCase() === name.toUpperCase()
+    );
+    
+    // Try last name match if exact match fails
+    if (!found) {
+      const nameParts = name.split(/\s+/);
+      const lastName = nameParts[nameParts.length - 1];
+      found = commissionerData.find(
+        (c) => c.last_name?.toUpperCase() === lastName.toUpperCase()
+      );
+    }
+    
+    return found;
+  };
+
   // Get panel composition analysis
   const getPanelAnalysis = () => {
-    const categorized = commissioners.map((name) => ({
-      name,
-      background: COMMISSIONER_BACKGROUNDS[name] || {
-        category: "Unknown Background",
-        details: "Background information pending research.",
-      },
-    }));
+    const categorized = commissioners.map((name) => {
+      const dbCommissioner = findCommissionerInDatabase(name);
+      
+      return {
+        name,
+        background: dbCommissioner
+          ? {
+              category: dbCommissioner.background_category || "Unknown Background",
+              details: dbCommissioner.background_details || "Background information pending research.",
+            }
+          : COMMISSIONER_BACKGROUNDS[name] || {
+              category: "Unknown Background",
+              details: "Background information pending research.",
+            },
+      };
+    });
 
     const lawEnforcementCount = categorized.filter(
       (c) => c.background.category === "Corrections & Law Enforcement"
@@ -249,7 +330,7 @@ const Cases = () => {
         <div className="flex items-center justify-center h-[calc(100vh-200px)]">
           <div className="text-center space-y-4">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-            <p className="text-muted-foreground">Loading case analysis...</p>
+            <p className="text-white">Loading case analysis...</p>
           </div>
         </div>
       </DashboardLayout>
@@ -260,7 +341,7 @@ const Cases = () => {
     return (
       <DashboardLayout>
         <div className="text-center py-12">
-          <p className="text-muted-foreground">Transcript not found.</p>
+          <p className="text-white">Transcript not found.</p>
           <Button onClick={() => navigate("/clients")} className="mt-4">
             Back to Clients
           </Button>
@@ -278,14 +359,14 @@ const Cases = () => {
         {/* Header Table */}
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold">Case Analysis</h1>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <h1 className="text-2xl font-bold text-white">Case Analysis</h1>
+            <div className="flex items-center gap-6 text-sm text-white">
               <span>Transcript ID: {transcript.id.slice(0, 8)}</span>
               <span>Client: {transcript.inmate_name || "Unknown"}</span>
               <span>CDCR: {transcript.cdcr_number || "N/A"}</span>
             </div>
           </div>
-          <Button variant="outline" onClick={() => navigate("/clients")}>
+          <Button variant="outline" className="text-white" onClick={() => navigate("/clients")}>
             Back to Clients
           </Button>
         </div>
@@ -458,10 +539,15 @@ const Cases = () => {
                           <h3 className="font-semibold mb-3">Panel Composition</h3>
                           <div className="space-y-3">
                             {panelAnalysis.categorized.map((commissioner, idx) => (
-                              <div key={idx} className="p-4 border rounded-lg">
+                              <div 
+                                key={idx} 
+                                className="p-4 border rounded-lg cursor-pointer hover:bg-accent/50 hover:border-primary/50 transition-all"
+                                onClick={() => navigate(`/commissioner/name/${encodeURIComponent(commissioner.name)}`)}
+                              >
                                 <div className="flex items-start justify-between mb-2">
                                   <div>
                                     <p className="font-medium">Commissioner {commissioner.name}</p>
+                                    <p className="text-xs text-muted-foreground mt-1">Click to view profile</p>
                                   </div>
                                   <Badge
                                     variant="outline"
@@ -596,9 +682,20 @@ const Cases = () => {
             </Tabs>
 
             <div className="flex gap-3 mt-6 pt-4 border-t">
-              <Button className="flex-1" variant="default" onClick={() => navigate(`/transcript/${transcript.id}`)}>
-                View Full Transcript
-              </Button>
+              {transcript.pdf_url ? (
+                <Button 
+                  className="flex-1" 
+                  variant="default" 
+                  onClick={() => window.open(transcript.pdf_url!, '_blank')}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  View Full Transcript (PDF)
+                </Button>
+              ) : (
+                <Button className="flex-1" variant="default" onClick={() => navigate(`/transcript/${transcript.id}`)}>
+                  View Full Transcript
+                </Button>
+              )}
               <Button className="flex-1" variant="outline" onClick={() => navigate("/clients")}>
                 Back to Clients
               </Button>

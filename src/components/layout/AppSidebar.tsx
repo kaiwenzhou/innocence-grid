@@ -1,4 +1,4 @@
-import { Home, Users, FileText, BarChart3, Scale, FileCheck, LogOut, User } from "lucide-react";
+import { Home, Users, FileText, BarChart3, Scale, LogOut, User } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useVolunteer } from "@/context/VolunteerContext";
@@ -17,11 +17,10 @@ import {
 } from "@/components/ui/sidebar";
 
 const items = [
-  { title: "Dashboard", url: "/dashboard", icon: Home },
   { title: "Clients", url: "/clients", icon: Users },
+  { title: "My Case Pipeline", url: "/dashboard", icon: Home },
   { title: "Transcripts", url: "/transcripts", icon: FileText },
   { title: "Analyse", url: "/analyze", icon: BarChart3 },
-  { title: "Form Generator", url: "/form-generator", icon: FileCheck },
   { title: "Commissioner Breakdown", url: "/commissioner-breakdown", icon: Scale },
 ];
 

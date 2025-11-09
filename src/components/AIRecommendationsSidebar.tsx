@@ -78,13 +78,13 @@ export function AIRecommendationsSidebar({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
-            <h3 className="text-sm font-bold text-slate-900">AI Priority Picks</h3>
+            <h3 className="text-sm font-bold text-white">AI Priority Picks</h3>
           </div>
           
           <Dialog open={showExplanation} onOpenChange={setShowExplanation}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                <Info className="h-4 w-4 text-slate-700" />
+                <Info className="h-4 w-4 text-white" />
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
@@ -116,7 +116,7 @@ export function AIRecommendationsSidebar({
           </Dialog>
         </div>
 
-        <p className="text-xs text-slate-700 font-medium">
+        <p className="text-xs text-white font-medium">
           AI suggestions - review carefully
         </p>
 
@@ -137,11 +137,11 @@ export function AIRecommendationsSidebar({
                 <div className="flex items-start gap-2">
                   <span className="text-lg">{getRankEmoji(rec.rank)}</span>
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-bold text-foreground truncate">
+                    <h4 className="text-sm font-bold text-black truncate">
                       {displayName}
                     </h4>
                     {rec.transcript.cdcr_number && (
-                      <p className="text-xs text-slate-700 font-medium">
+                      <p className="text-xs text-black font-medium">
                         CDCR #{rec.transcript.cdcr_number}
                       </p>
                     )}
@@ -158,7 +158,7 @@ export function AIRecommendationsSidebar({
                 </Badge>
 
                 {/* Top Reason */}
-                <p className="text-xs text-slate-800 font-semibold leading-snug">
+                <p className="text-xs text-black font-semibold leading-snug">
                   {rec.reasons[0]}
                 </p>
 
@@ -166,19 +166,19 @@ export function AIRecommendationsSidebar({
                 <div className="grid grid-cols-2 gap-1 text-[10px]">
                   <div className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                    <span className="text-slate-800 font-medium">Inn: {rec.breakdown.innocenceScore}</span>
+                    <span className="text-black font-medium">Inn: {rec.breakdown.innocenceScore}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                    <span className="text-slate-800 font-medium">Bias: {rec.breakdown.biasScore}</span>
+                    <span className="text-black font-medium">Bias: {rec.breakdown.biasScore}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span className="text-slate-800 font-medium">Urg: {rec.breakdown.urgencyScore}</span>
+                    <span className="text-black font-medium">Urg: {rec.breakdown.urgencyScore}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-slate-500"></span>
-                    <span className="text-slate-800 font-medium">Stat: {rec.breakdown.statusScore}</span>
+                    <span className="text-black font-medium">Stat: {rec.breakdown.statusScore}</span>
                   </div>
                 </div>
 
@@ -197,7 +197,7 @@ export function AIRecommendationsSidebar({
                     className="flex-1 h-7 text-xs bg-primary hover:bg-primary/90"
                     onClick={() => onAssign(rec.transcript.id)}
                   >
-                    Assign
+                    Assign to Me
                   </Button>
                 </div>
               </div>

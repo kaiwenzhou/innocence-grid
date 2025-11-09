@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TranscriptService } from "@/services/transcripts";
 import { VolunteerService } from "@/services/volunteers";
 import { Transcript } from "@/lib/types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useVolunteer } from "@/context/VolunteerContext";
 import { useNavigate } from "react-router-dom";
@@ -53,30 +53,6 @@ const Analyze = () => {
       setIsLoading(true);
       const data = await TranscriptService.getAllTranscripts();
       setTranscripts(data);
-
-      // Calculate statistics
-      const total = data.length;
-      const withInnocenceClaims = data.filter((t) =>
-        hasInnocenceClaim(t.raw_text)
-      ).length;
-      const assigned = data.filter((t) => t.assigned_to).length;
-      const unassigned = data.filter((t) => !t.assigned_to).length;
-      const completed = data.filter((t) => t.status === "completed").length;
-      
-      // High bias risk: transcripts with commissioners from law enforcement
-      const highBiasRisk = data.filter((t) => {
-        const commissioners = extractCommissioners(t.raw_text);
-        return commissioners.length > 0 && hasHighBiasRisk(commissioners);
-      }).length;
-
-      setStats({
-        total,
-        withInnocenceClaims,
-        assigned,
-        unassigned,
-        completed,
-        highBiasRisk,
-      });
     } catch (error) {
       toast({
         title: "Error loading analytics",
@@ -87,6 +63,37 @@ const Analyze = () => {
       setIsLoading(false);
     }
   };
+
+  // Memoize expensive calculations - only recalculate when transcripts change
+  const calculatedStats = useMemo(() => {
+    const total = transcripts.length;
+    const withInnocenceClaims = transcripts.filter((t) =>
+      hasInnocenceClaim(t.raw_text)
+    ).length;
+    const assigned = transcripts.filter((t) => t.assigned_to).length;
+    const unassigned = transcripts.filter((t) => !t.assigned_to).length;
+    const completed = transcripts.filter((t) => t.status === "completed").length;
+    
+    // High bias risk: transcripts with commissioners from law enforcement
+    const highBiasRisk = transcripts.filter((t) => {
+      const commissioners = extractCommissioners(t.raw_text);
+      return commissioners.length > 0 && hasHighBiasRisk(commissioners);
+    }).length;
+
+    return {
+      total,
+      withInnocenceClaims,
+      assigned,
+      unassigned,
+      completed,
+      highBiasRisk,
+    };
+  }, [transcripts]); // Only recalculate when transcripts array changes
+
+  // Update stats whenever calculated stats change
+  useEffect(() => {
+    setStats(calculatedStats);
+  }, [calculatedStats]);
 
   const hasInnocenceClaim = (text: string): boolean => {
     const patterns = [

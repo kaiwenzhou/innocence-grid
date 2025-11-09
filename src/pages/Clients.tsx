@@ -16,8 +16,9 @@ import { AIRecommendationsSidebar } from "@/components/AIRecommendationsSidebar"
 import { TranscriptService } from "@/services/transcripts";
 import { VolunteerService } from "@/services/volunteers";
 import { PriorityService } from "@/services/priority";
+import { extractKeyInnocenceIndicator } from "@/services/gemini";
 import { Transcript, Volunteer, PriorityRecommendation } from "@/lib/types";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useVolunteer } from "@/context/VolunteerContext";
 import { useNavigate } from "react-router-dom";
@@ -32,6 +33,7 @@ const Clients = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState<"all" | "my_cases" | "unassigned">("all");
+  const [aiInsights, setAiInsights] = useState<Record<string, string>>({});
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -53,9 +55,8 @@ const Clients = () => {
       const data = await TranscriptService.getAllTranscripts();
       setClients(data);
       
-      // Calculate AI recommendations
-      const topRecommendations = PriorityService.getTopRecommendations(data, 3);
-      setRecommendations(topRecommendations);
+      // Load AI insights for all clients (in parallel, limit to first 20 for performance)
+      loadAIInsights(data.slice(0, 20));
     } catch (error) {
       toast({
         title: "Error loading transcripts",
@@ -66,6 +67,47 @@ const Clients = () => {
       setIsLoading(false);
     }
   };
+
+  const loadAIInsights = async (transcripts: Transcript[]) => {
+    // Load insights in batches to avoid overwhelming the API
+    const batchSize = 5;
+    const insights: Record<string, string> = {};
+
+    for (let i = 0; i < transcripts.length; i += batchSize) {
+      const batch = transcripts.slice(i, i + batchSize);
+      const promises = batch.map(async (transcript) => {
+        try {
+          const insight = await extractKeyInnocenceIndicator(
+            transcript.raw_text,
+            transcript.inmate_name || undefined
+          );
+          return { id: transcript.id, insight };
+        } catch (error) {
+          console.error(`Error loading insight for ${transcript.id}:`, error);
+          return {
+            id: transcript.id,
+            insight: `${transcript.inmate_name || 'Applicant'} parole hearing transcript available for review.`
+          };
+        }
+      });
+
+      const results = await Promise.all(promises);
+      results.forEach(({ id, insight }) => {
+        insights[id] = insight;
+      });
+
+      // Update state after each batch
+      setAiInsights(prev => ({ ...prev, ...insights }));
+    }
+  };
+
+  // Memoize AI recommendations calculation - only recalculate when clients change
+  useEffect(() => {
+    if (clients.length > 0) {
+      const topRecommendations = PriorityService.getTopRecommendations(clients, 3);
+      setRecommendations(topRecommendations);
+    }
+  }, [clients]);
 
   const loadVolunteers = async () => {
     try {
@@ -80,7 +122,8 @@ const Clients = () => {
     }
   };
 
-  const handleAssignCase = async (transcriptId: string, volunteerId: string) => {
+  // Memoize callback functions to avoid unnecessary re-renders
+  const handleAssignCase = useCallback(async (transcriptId: string, volunteerId: string) => {
     try {
       await VolunteerService.assignCase(transcriptId, volunteerId);
       toast({
@@ -95,9 +138,9 @@ const Clients = () => {
         variant: "destructive",
       });
     }
-  };
+  }, [toast]);
 
-  const handleUnassignCase = async (transcriptId: string) => {
+  const handleUnassignCase = useCallback(async (transcriptId: string) => {
     try {
       await VolunteerService.unassignCase(transcriptId);
       toast({
@@ -112,18 +155,18 @@ const Clients = () => {
         variant: "destructive",
       });
     }
-  };
+  }, [toast]);
 
   // AI Recommendations handlers
-  const handleViewCase = (transcriptId: string) => {
+  const handleViewCase = useCallback((transcriptId: string) => {
     navigate(`/transcript/${transcriptId}`);
-  };
+  }, [navigate]);
 
-  const handleAnalyzeCase = (transcriptId: string) => {
+  const handleAnalyzeCase = useCallback((transcriptId: string) => {
     navigate(`/cases/${transcriptId}`);
-  };
+  }, [navigate]);
 
-  const handleAssignToMe = async (transcriptId: string) => {
+  const handleAssignToMe = useCallback(async (transcriptId: string) => {
     if (!currentVolunteer) {
       toast({
         title: "Error",
@@ -133,7 +176,7 @@ const Clients = () => {
       return;
     }
     await handleAssignCase(transcriptId, currentVolunteer.id);
-  };
+  }, [currentVolunteer, handleAssignCase, toast]);
 
   const getVolunteerName = (volunteerId: string | null): string => {
     if (!volunteerId) return "Unassigned";
@@ -141,11 +184,16 @@ const Clients = () => {
     return volunteer ? volunteer.full_name : "Unknown";
   };
 
-  // Simple innocence claim extraction from transcript text
-  const extractInnocenceClaim = (rawText: string, inmateName: string | null): string => {
-    if (!rawText) return "No transcript content available.";
+  // Get AI-generated innocence insight or fallback to basic extraction
+  const getInnocenceInsight = (client: Transcript): string => {
+    // Return AI insight if available
+    if (aiInsights[client.id]) {
+      return aiInsights[client.id];
+    }
+
+    // Fallback: Simple extraction while waiting for AI
+    if (!client.raw_text) return "No transcript content available.";
     
-    // Look for common innocence phrases
     const innocencePatterns = [
       /I\s+(?:did\s+not|didn't)\s+do\s+(?:this|it)/i,
       /I\s+am\s+innocent/i,
@@ -155,21 +203,15 @@ const Clients = () => {
     ];
 
     for (const pattern of innocencePatterns) {
-      const match = rawText.match(pattern);
+      const match = client.raw_text.match(pattern);
       if (match) {
-        // Get surrounding context (up to 100 characters before and after)
-        const matchIndex = rawText.indexOf(match[0]);
-        const start = Math.max(0, matchIndex - 50);
-        const end = Math.min(rawText.length, matchIndex + match[0].length + 100);
-        let excerpt = rawText.substring(start, end).replace(/\s+/g, ' ').trim();
-        if (start > 0) excerpt = '...' + excerpt;
-        if (end < rawText.length) excerpt = excerpt + '...';
-        return excerpt;
+        const excerpt = match[0].substring(0, 100).replace(/\s+/g, ' ').trim();
+        return excerpt + (match[0].length > 100 ? '...' : '');
       }
     }
 
-    // If no innocence claim found, return a generic message
-    return `${inmateName || 'Applicant'} parole hearing transcript available for review.`;
+    // Loading AI insight...
+    return `Analyzing transcript for key innocence indicators...`;
   };
 
   // Calculate case strength based on available data
@@ -201,27 +243,29 @@ const Clients = () => {
     return daysSinceUpload < 7 ? "in_progress" : "new";
   };
 
-  // Filter clients based on search and assignment
-  const filteredClients = clients.filter((client) => {
-    // Search filter
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      const matchesSearch =
-        client.inmate_name?.toLowerCase().includes(search) ||
-        client.cdcr_number?.toLowerCase().includes(search) ||
-        client.file_name?.toLowerCase().includes(search);
-      if (!matchesSearch) return false;
-    }
+  // Memoize filtered clients - only recalculate when dependencies change
+  const filteredClients = useMemo(() => {
+    return clients.filter((client) => {
+      // Search filter
+      if (searchTerm) {
+        const search = searchTerm.toLowerCase();
+        const matchesSearch =
+          client.inmate_name?.toLowerCase().includes(search) ||
+          client.cdcr_number?.toLowerCase().includes(search) ||
+          client.file_name?.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+      }
 
-    // Assignment filter
-    if (assignmentFilter === "my_cases" && currentVolunteer) {
-      return client.assigned_to === currentVolunteer.id;
-    } else if (assignmentFilter === "unassigned") {
-      return !client.assigned_to || client.status === "unassigned";
-    }
+      // Assignment filter
+      if (assignmentFilter === "my_cases" && currentVolunteer) {
+        return client.assigned_to === currentVolunteer.id;
+      } else if (assignmentFilter === "unassigned") {
+        return !client.assigned_to || client.status === "unassigned";
+      }
 
-    return true; // "all" filter or no filter
-  });
+      return true; // "all" filter or no filter
+    });
+  }, [clients, searchTerm, assignmentFilter, currentVolunteer]);
   const getStrengthBadge = (strength: string) => {
     const colors = {
       high: "bg-slate-100 text-slate-700 border border-slate-200",
@@ -265,7 +309,7 @@ const Clients = () => {
           <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow-sm">
             Clients Identified from Parole Hearing Transcripts
           </h1>
-          <p className="text-slate-200 mt-2 font-medium">
+          <p className="text-white mt-2 font-medium">
             {isLoading ? "Loading..." : `${filteredClients.length} of ${clients.length} transcripts`}
           </p>
         </div>
@@ -287,7 +331,7 @@ const Clients = () => {
           </div>
           
           <Select value={assignmentFilter} onValueChange={(value: any) => setAssignmentFilter(value)}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[180px] text-white">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -297,13 +341,13 @@ const Clients = () => {
             </SelectContent>
           </Select>
 
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2 text-white">
             <Calendar className="h-4 w-4" />
             Dates
           </Button>
 
           <Select defaultValue="all">
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[160px] text-white">
               <SelectValue placeholder="Case Strength" />
             </SelectTrigger>
             <SelectContent>
@@ -315,7 +359,7 @@ const Clients = () => {
           </Select>
 
           <Select defaultValue="all">
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[160px] text-white">
               <SelectValue placeholder="Sentence" />
             </SelectTrigger>
             <SelectContent>
@@ -327,7 +371,7 @@ const Clients = () => {
           </Select>
 
           <Select defaultValue="all">
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[160px] text-white">
               <SelectValue placeholder="Categories" />
             </SelectTrigger>
             <SelectContent>
@@ -345,11 +389,11 @@ const Clients = () => {
 
         {/* Client Cards Grid */}
         {isLoading ? (
-          <div className="text-center py-12 text-slate-200 font-medium">
+          <div className="text-center py-12 text-white font-medium">
             Loading transcripts...
           </div>
         ) : filteredClients.length === 0 ? (
-          <div className="text-center py-12 text-slate-200 font-medium">
+          <div className="text-center py-12 text-white font-medium">
             {searchTerm ? "No transcripts match your search." : "No transcripts found. Upload transcripts to get started."}
           </div>
         ) : (
@@ -357,7 +401,7 @@ const Clients = () => {
             {filteredClients.map((client) => {
               const caseStrength = calculateCaseStrength(client);
               const status = getStatus(client);
-              const innocenceClaim = extractInnocenceClaim(client.raw_text, client.inmate_name);
+              const innocenceInsight = getInnocenceInsight(client);
               const displayName = client.inmate_name || "Unknown Applicant";
 
               return (
@@ -401,9 +445,9 @@ const Clients = () => {
                     </div>
                   </div>
 
-                  {/* Innocence Claim */}
-                  <p className="text-sm text-foreground/70 line-clamp-3 leading-relaxed">
-                    {innocenceClaim}
+                  {/* AI-Generated Innocence Insight */}
+                  <p className="text-sm text-foreground/70 line-clamp-3 leading-relaxed italic">
+                    {innocenceInsight}
                   </p>
 
                   {/* Actions */}
@@ -436,7 +480,12 @@ const Clients = () => {
                       }}
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Assign to..." />
+                        <SelectValue placeholder="Assign to...">
+                          {client.assigned_to 
+                            ? getVolunteerName(client.assigned_to)
+                            : "UNASSIGNED"
+                          }
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="unassigned">

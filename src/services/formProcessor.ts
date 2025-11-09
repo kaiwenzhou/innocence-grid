@@ -114,6 +114,15 @@ export interface ClientFormData {
   
   // Raw data for reference
   rawTranscript: string;
+  
+  // Additional fields used in other methods
+  facilityName?: string;
+  facilityAddress?: string;
+  hearingDate?: string;
+  hasInnocenceClaim?: boolean;
+  innocenceStatement?: string;
+  programsCompleted?: string[];
+  supportLetters?: string;
 }
 
 export class FormProcessor {
@@ -217,6 +226,15 @@ export class FormProcessor {
       
       // Raw data
       rawTranscript: text,
+      
+      // Additional fields
+      facilityName: this.extractFacilityName(text),
+      facilityAddress: this.extractFacilityAddress(text),
+      hearingDate: transcript.hearing_date ? new Date(transcript.hearing_date).toLocaleDateString() : "",
+      hasInnocenceClaim: this.detectInnocenceClaim(text),
+      innocenceStatement: this.extractInnocenceStatement(text),
+      programsCompleted: this.extractPrograms(text),
+      supportLetters: this.extractSupportInfo(text),
     };
   }
 
@@ -224,18 +242,30 @@ export class FormProcessor {
    * Extract first name from full name
    */
   private static extractFirstName(fullName: string | null): string {
-    if (!fullName) return "Unknown";
+    if (!fullName) return "";
     const parts = fullName.trim().split(/\s+/);
-    return parts[0] || "Unknown";
+    return parts[0] || "";
+  }
+
+  /**
+   * Extract middle name from full name
+   */
+  private static extractMiddleName(fullName: string | null): string {
+    if (!fullName) return "";
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length > 2) {
+      return parts.slice(1, -1).join(" ");
+    }
+    return "";
   }
 
   /**
    * Extract last name from full name
    */
   private static extractLastName(fullName: string | null): string {
-    if (!fullName) return "Unknown";
+    if (!fullName) return "";
     const parts = fullName.trim().split(/\s+/);
-    return parts.slice(1).join(" ") || "Unknown";
+    return parts.length > 1 ? parts[parts.length - 1] : "";
   }
 
   /**
@@ -427,6 +457,99 @@ export class FormProcessor {
     }
     
     return "See transcript for support information";
+  }
+
+  // ============ Additional Helper Methods ============
+
+  private static extractAlias(text: string): string { return ""; }
+  private static extractDateOfBirth(text: string): string {
+    const dobPattern = /(?:date of birth|DOB|born)[:\s]+([A-Za-z]+\s+\d{1,2},?\s+\d{4})/i;
+    const match = text.match(dobPattern);
+    return match ? match[1] : "";
+  }
+  private static constructMailingAddress(text: string): string { return this.extractFacilityAddress(text); }
+  private static extractCity(text: string): string { return ""; }
+  private static extractZipCode(text: string): string { return ""; }
+  private static detectPrimaryLanguage(text: string): string { 
+    if (text.match(/interpreter|translator|spanish|language barrier/i)) return "Other";
+    return "English"; 
+  }
+  private static extractEducation(text: string): string {
+    if (text.match(/college degree|bachelor|master/i)) return "College";
+    if (text.match(/GED|high school diploma/i)) return "GED/High School";
+    return "";
+  }
+  private static extractMilitaryService(text: string): string {
+    if (text.match(/military|army|navy|air force|marines|veteran/i)) return "Yes";
+    return "No";
+  }
+  private static extractDisability(text: string): string { return ""; }
+  private static extractTrialAttorney(text: string): { firstName: string; lastName: string; type: string; } | null {
+    const match = text.match(/(?:represented by|defense attorney|defense counsel)[:\s]+([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
+    if (match) {
+      const parts = match[1].split(/\s+/);
+      return { firstName: parts[0], lastName: parts[1] || "", type: "Unknown" };
+    }
+    return null;
+  }
+  private static extractAppellateAttorney(text: string): { firstName: string; lastName: string; } | null { return null; }
+  private static extractFamilyContacts(text: string): Array<{ firstName: string; lastName: string; relation: string; }> { return []; }
+  private static calculateAgeAtCrime(text: string, hearingDate: string | null): string { return ""; }
+  private static extractDateOfCrime(text: string): string {
+    const pattern = /(?:crime|offense).*?(\d{1,2}\/\d{1,2}\/\d{4}|\w+ \d{1,2}, \d{4})/i;
+    const match = text.match(pattern);
+    return match ? match[1] : "";
+  }
+  private static extractLocationOfCrime(text: string): string {
+    const pattern = /(?:in|at|near)\s+([A-Z][a-z]+(?:,\s*[A-Z][a-z]+)?)\s*,?\s*(?:California|CA)/i;
+    const match = text.match(pattern);
+    return match ? match[1] + ", California" : "";
+  }
+  private static extractDateOfArrest(text: string): string { return ""; }
+  private static extractLocationOfArrest(text: string): string { return ""; }
+  private static extractTrialJudge(text: string): { firstName: string; lastName: string; } | null { return null; }
+  private static extractTypeOfTrial(text: string): string {
+    if (text.match(/jury trial/i)) return "Jury";
+    if (text.match(/bench trial/i)) return "Bench";
+    return "";
+  }
+  private static detectMultipleTrials(text: string): string { return ""; }
+  private static extractProsecutor(text: string): { firstName: string; lastName: string; } | null { return null; }
+  private static extractProsecutorClaim(text: string): string { return ""; }
+  private static extractVictimNames(text: string): string[] { return []; }
+  private static extractCounty(text: string): string {
+    const pattern = /(?:County of|in)\s+([A-Z][a-z]+)\s+County/i;
+    const match = text.match(pattern);
+    return match ? match[1] + " County" : "";
+  }
+  private static extractSentencingDate(text: string): string { return ""; }
+  private static extractParoleEligibility(text: string): string { return ""; }
+  private static extractPriorHearings(text: string): string { return ""; }
+  private static extractOtherConvictions(text: string): string { return ""; }
+  private static extractPriorConvictions(text: string): string { return ""; }
+  private static extractHowBecameSuspect(text: string): string { return ""; }
+  private static extractOtherSuspects(text: string): string { return ""; }
+  private static detectPoliceStatement(text: string): string { return ""; }
+  private static extractExpertTestimony(text: string): string[] { return []; }
+  private static detectPhysicalEvidence(text: string): string { return ""; }
+  private static detectKnewVictim(text: string): string { return ""; }
+  private static extractVictimIdentification(text: string): string { return ""; }
+  private static extractOthersClaimedCrime(text: string): string { return ""; }
+  private static extractWitnessMotivation(text: string): string { return ""; }
+  private static detectRecantation(text: string): string { return ""; }
+  private static extractPresenceAtScene(text: string): string { return ""; }
+  private static extractDefenseStrategies(text: string): string { return ""; }
+  private static detectDefendantTestimony(text: string): string { return ""; }
+  private static detectAlibiWitness(text: string): string { return ""; }
+  private static extractDefenseWitnesses(text: string): string { return ""; }
+  private static extractActualPerpetrator(text: string): string { return ""; }
+  private static extractEvidenceTypes(text: string): string[] { return []; }
+  private static detectCodefendants(text: string): string { return ""; }
+  private static extractCodefendantStatement(text: string): string { return ""; }
+  private static detectCodefendantTestimony(text: string): string { return ""; }
+  private static extractCodefendantRelationship(text: string): string { return ""; }
+  private static generateAdditionalInfo(text: string, transcript: Transcript): string {
+    return `This form was auto-generated from parole hearing transcript. Review transcript for complete details.`;
   }
 
   /**

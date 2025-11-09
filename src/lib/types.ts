@@ -92,6 +92,8 @@ export interface Transcript {
   assigned_to: string | null;
   assigned_at: string | null;
   status: 'unassigned' | 'assigned' | 'in_review' | 'completed' | 'flagged';
+  pdf_url: string | null;
+  pdf_file_size: number | null;
 }
 
 export interface Prediction {
@@ -179,6 +181,8 @@ export interface Commissioner {
   profile_url: string | null;
   photo_url: string | null;
   biography: string | null;
+  background_category: string | null;
+  background_details: string | null;
   appointment_date: string | null;
   term_end_date: string | null;
   previous_roles: PreviousRole[];

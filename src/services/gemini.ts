@@ -218,6 +218,76 @@ export async function testGeminiConnection(): Promise<boolean> {
 }
 
 /**
+ * Extract a key innocence indicator as a short sentence summary
+ * 
+ * @param transcriptText - The full transcript text
+ * @param inmateName - Name of the inmate (optional)
+ * @returns A short sentence highlighting a key innocence indicator
+ */
+export async function extractKeyInnocenceIndicator(
+  transcriptText: string,
+  inmateName?: string
+): Promise<string> {
+  if (!genAI) {
+    console.error('Gemini API not initialized');
+    return `${inmateName || 'Applicant'} parole hearing transcript available for review.`;
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+
+    // Limit transcript to first 3000 characters for faster processing
+    const truncatedText = transcriptText.substring(0, 3000);
+
+    const prompt = `You are analyzing a parole hearing transcript to identify THE MOST COMPELLING innocence indicator.
+
+Analyze this transcript and identify the single most important statement or fact that suggests the inmate may be innocent.
+
+Look for:
+1. Direct innocence claims: "I didn't do it", "I'm innocent"
+2. Evidence of wrongful conviction: alibi, misidentification, coerced confession, false testimony
+3. Maintained innocence despite negative consequences
+4. Specific details contradicting the conviction
+
+Return ONLY a single SHORT sentence (max 15 words) that captures the most compelling innocence indicator.
+Format: Start with "Claims" or "States" or "Maintains" followed by the key point.
+
+Examples of good outputs:
+- "Claims he was at work when crime occurred, has time cards"
+- "States confession was coerced after 18 hours of interrogation"  
+- "Maintains innocence despite refusing plea deal"
+- "Claims witness recanted testimony after trial"
+
+Transcript excerpt:
+${truncatedText}
+
+Your one-sentence summary:`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    let summary = response.text().trim();
+
+    // Remove quotes if present
+    summary = summary.replace(/^["']|["']$/g, '');
+    
+    // Limit to 120 characters
+    if (summary.length > 120) {
+      summary = summary.substring(0, 117) + '...';
+    }
+
+    // If response is too generic or empty, return default
+    if (!summary || summary.length < 10 || summary.toLowerCase().includes('available for review')) {
+      return `${inmateName || 'Applicant'} maintains innocence, transcript available for review.`;
+    }
+
+    return summary;
+  } catch (error) {
+    console.error('Error extracting innocence indicator:', error);
+    return `${inmateName || 'Applicant'} parole hearing transcript available for review.`;
+  }
+}
+
+/**
  * Get model information
  */
 export function getModelInfo(): { available: boolean; model: string } {

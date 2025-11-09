@@ -70,6 +70,7 @@ const CommissionerBreakdown = () => {
   const navigate = useNavigate();
   const { isAuthenticated } = useVolunteer();
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+  const [dbCommissioners, setDbCommissioners] = useState<Commissioner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [commissionerAnalyses, setCommissionerAnalyses] = useState<CommissionerAnalysis[]>([]);
   const [selectedCommissioner, setSelectedCommissioner] = useState<CommissionerAnalysis | null>(null);
@@ -83,9 +84,25 @@ const CommissionerBreakdown = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
+      loadCommissionersFromDatabase();
       loadCommissionerData();
     }
   }, [isAuthenticated]);
+
+  const loadCommissionersFromDatabase = async () => {
+    try {
+      const commissioners = await CommissionerService.getAllCommissioners();
+      setDbCommissioners(commissioners);
+      console.log(`✅ Loaded ${commissioners.length} commissioners from database`);
+    } catch (error) {
+      console.error("Error loading commissioners from database:", error);
+      toast({
+        title: "Warning",
+        description: "Could not load commissioner database. Using fallback data.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const loadCommissionerData = async () => {
     try {
@@ -93,18 +110,44 @@ const CommissionerBreakdown = () => {
       const data = await TranscriptService.getAllTranscripts();
       setTranscripts(data);
 
+      console.log(`📊 Processing ${data.length} transcripts for commissioner analysis...`);
+
       // Analyze commissioner data
       const commissionerMap = new Map<string, CommissionerAnalysis>();
+      let transcriptsWithCommissioners = 0;
+      let transcriptsWithoutCommissioners = 0;
+      let totalCommissionersExtracted = 0;
 
-      data.forEach((transcript) => {
+      data.forEach((transcript, index) => {
         const commissioners = extractCommissioners(transcript.raw_text);
         const hasInnocenceClaim = checkInnocenceClaim(transcript.raw_text);
         const biasLanguage = analyzeBiasLanguage(transcript.raw_text);
 
+        if (commissioners.length > 0) {
+          transcriptsWithCommissioners++;
+          totalCommissionersExtracted += commissioners.length;
+        } else {
+          transcriptsWithoutCommissioners++;
+        }
+
         commissioners.forEach((commissionerName) => {
-          const background = COMMISSIONER_BACKGROUNDS[commissionerName];
-          const category = background?.category || "Unknown Background";
-          const details = background?.details || "Background information pending research.";
+          // FIXED: Look up commissioner in database first, then fallback to hardcoded
+          const dbCommissioner = dbCommissioners.find(
+            c => c.full_name.toUpperCase() === commissionerName
+          );
+          
+          const background = dbCommissioner 
+            ? {
+                category: dbCommissioner.background_category || "Unknown Background",
+                details: dbCommissioner.background_details || "Background information pending research.",
+              }
+            : COMMISSIONER_BACKGROUNDS[commissionerName] || {
+                category: "Unknown Background",
+                details: "Background information pending research.",
+              };
+
+          const category = background.category;
+          const details = background.details;
 
           if (!commissionerMap.has(commissionerName)) {
             commissionerMap.set(commissionerName, {
@@ -147,6 +190,15 @@ const CommissionerBreakdown = () => {
         });
       });
 
+      const uniqueCommissioners = commissionerMap.size;
+      
+      console.log(`✅ Analysis complete:`);
+      console.log(`   - Total transcripts: ${data.length}`);
+      console.log(`   - With commissioners: ${transcriptsWithCommissioners}`);
+      console.log(`   - Without commissioners: ${transcriptsWithoutCommissioners}`);
+      console.log(`   - Total commissioner mentions: ${totalCommissionersExtracted}`);
+      console.log(`   - Unique commissioners: ${uniqueCommissioners}`);
+
       setCommissionerAnalyses(
         Array.from(commissionerMap.values())
           .sort((a, b) => b.hearingsCount - a.hearingsCount)
@@ -164,43 +216,90 @@ const CommissionerBreakdown = () => {
 
   const extractCommissioners = (text: string): string[] => {
     const names = new Set<string>();
-    const panelSectionMatch = text.match(/PANEL PRESENT:?\s*([\s\S]*?)(?:OTHERS PRESENT|$)/i);
     
-    if (panelSectionMatch) {
-      const panelSection = panelSectionMatch[1];
-      const sectionMatches = panelSection.matchAll(/([A-Z]+(?:\s+[A-Z]+)+),?\s+(?:Presiding|Deputy)?\s*Commissioner/gi);
+    // Strategy 1: Extract from PANEL PRESENT section
+    const panelMatch = text.match(/PANEL PRESENT:?\s*([\s\S]*?)(?:OTHERS PRESENT|HEARING OFFICER|$)/i);
+    if (panelMatch) {
+      const panelSection = panelMatch[1];
+      const sectionMatches = [...panelSection.matchAll(/([A-Z]+(?:\s+[A-Z]+){1,4}),?\s+(?:Presiding|Deputy)?\s*Commissioner/gi)];
       
       for (const match of sectionMatches) {
         const name = match[1].trim().toUpperCase();
-        const wordCount = name.split(/\s+/).length;
-        if (wordCount >= 2 && wordCount <= 4) {
+        if (isValidCommissionerName(name)) {
           names.add(name);
         }
+      }
+    }
+    
+    // Strategy 2: Extract from dialogue (COMMISSIONER NAME:)
+    const dialogueMatches = [...text.matchAll(/(?:PRESIDING\s+)?COMMISSIONER\s+([A-Z]+(?:\s+[A-Z]+){1,2}):/gi)];
+    for (const match of dialogueMatches) {
+      const name = match[1].trim().toUpperCase();
+      if (isValidCommissionerName(name)) {
+        names.add(name);
       }
     }
     
     return Array.from(names);
   };
 
+  const isValidCommissionerName = (name: string): boolean => {
+    const words = name.split(/\s+/);
+    const invalidWords = ['AND', 'OR', 'THE', 'A', 'AN', 'OTHERS', 'PRESENT', 'PANEL', 'AM', 'PM'];
+    
+    // Allow 2-5 words for names (handles hyphenated/compound names)
+    if (words.length < 2 || words.length > 5) return false;
+    
+    // Check for invalid words
+    for (const word of words) {
+      if (invalidWords.includes(word)) return false;
+      if (word.length < 2) return false;
+    }
+    
+    // No numbers in name
+    if (/\d/.test(name)) return false;
+    
+    return true;
+  };
+
   const checkInnocenceClaim = (text: string): boolean => {
     const patterns = [
       /maintain.*different/i,
       /didn't.*do/i,
+      /did\s+not\s+(?:do|commit)/i,
       /innocent/i,
-      /wrongly/i,
-      /falsely/i,
+      /wrongly\s+convicted/i,
+      /falsely\s+accused/i,
       /I\s+(?:did\s+not|didn't)\s+do/i,
+      /I\s+was\s+not\s+there/i,
+      /someone\s+else\s+did/i,
+      /misidentif(?:ied|ication)/i,
+      /actual(?:ly)?\s+innocent/i,
+      /false\s+testimony/i,
     ];
     return patterns.some((pattern) => pattern.test(text));
   };
 
   const analyzeBiasLanguage = (text: string): { totalCount: number; patterns: { phrase: string; count: number }[] } => {
     const biasPatterns = [
-      { phrase: "lack of insight", regex: /lack of insight/gi },
-      { phrase: "minimizing", regex: /minimiz/gi },
-      { phrase: "denial", regex: /in denial|denial of/gi },
-      { phrase: "not taking responsibility", regex: /not taking responsibility/gi },
-      { phrase: "lack of remorse", regex: /lack of remorse/gi },
+      // Original patterns
+      { phrase: "lack of insight", regex: /lack\s+of\s+insight/gi },
+      { phrase: "minimizing", regex: /minimiz(?:e|ing|ed)/gi },
+      { phrase: "denial", regex: /in\s+denial|denial\s+of/gi },
+      { phrase: "not taking responsibility", regex: /not\s+taking\s+responsibility/gi },
+      { phrase: "lack of remorse", regex: /lack\s+of\s+remorse/gi },
+      
+      // Enhanced patterns
+      { phrase: "not suitable", regex: /not\s+suitable(?:\s+for\s+parole)?/gi },
+      { phrase: "unrealistic", regex: /unrealistic(?:\s+plans)?/gi },
+      { phrase: "superficial", regex: /superficial(?:\s+understanding)?/gi },
+      { phrase: "not credible", regex: /not\s+credible/gi },
+      { phrase: "manipulative", regex: /manipulat(?:ive|ion)/gi },
+      { phrase: "danger to society", regex: /danger(?:ous)?\s+to\s+(?:the\s+)?(?:public|society)/gi },
+      { phrase: "continues to pose", regex: /continues\s+to\s+pose(?:\s+a)?\s+(?:risk|threat)/gi },
+      { phrase: "not rehabilitated", regex: /not\s+(?:fully\s+)?rehabilitated/gi },
+      { phrase: "risk to public safety", regex: /risk\s+to\s+public\s+safety/gi },
+      { phrase: "unresolved issues", regex: /unresolved\s+issues/gi },
     ];
     
     let totalCount = 0;
@@ -258,9 +357,36 @@ const CommissionerBreakdown = () => {
   const totalHearings = transcripts.length;
   const totalInnocenceClaims = commissionerAnalyses.reduce((sum, c) => sum + c.innocenceClaimHearings, 0);
   const totalBiasInstances = commissionerAnalyses.reduce((sum, c) => sum + c.biasLanguageCount, 0);
-  const lePercentage = ((commissionerAnalyses
-    .filter(c => c.category === "Corrections & Law Enforcement" || c.category === "Prosecution & State's Attorney")
-    .reduce((sum, c) => sum + c.hearingsCount, 0) / totalHearings) * 100).toFixed(0);
+  
+  // CORRECTED CALCULATION: Count panels where ALL commissioners are LE/Prosecution
+  const lePanelsCount = transcripts.filter(transcript => {
+    // Extract commissioners from transcript
+    const panelMatch = transcript.raw_text.match(/PANEL PRESENT:?\s*([\s\S]*?)(?:OTHERS PRESENT|HEARING OFFICER|$)/i);
+    if (!panelMatch) return false;
+    
+    const panelSection = panelMatch[1];
+    const commissionerMatches = [...panelSection.matchAll(/([A-Z]+(?:\s+[A-Z]+){1,3}),?\s+(?:Presiding|Deputy)?\s*Commissioner/gi)];
+    const commissioners = commissionerMatches.map(m => m[1].trim().toUpperCase()).filter(name => {
+      const words = name.split(/\s+/);
+      return words.length >= 2 && words.length <= 4 && !['AND', 'OR', 'THE', 'OTHERS', 'PRESENT'].includes(name);
+    });
+    
+    if (commissioners.length === 0) return false;
+    
+    // Count how many commissioners have LE/Prosecution backgrounds
+    const leCount = commissioners.filter(name => {
+      const commissioner = commissionerAnalyses.find(c => c.name.toUpperCase() === name);
+      return commissioner && (
+        commissioner.category === "Corrections & Law Enforcement" ||
+        commissioner.category === "Prosecution & State's Attorney"
+      );
+    }).length;
+    
+    // Panel is 100% LE/Prosecution only if ALL commissioners match
+    return leCount === commissioners.length;
+  }).length;
+  
+  const lePercentage = totalHearings > 0 ? ((lePanelsCount / totalHearings) * 100).toFixed(0) : "0";
 
   return (
     <DashboardLayout>
@@ -301,8 +427,8 @@ const CommissionerBreakdown = () => {
                   </div>
                 </div>
                 <p className="text-3xl font-bold text-foreground">{lePercentage}%</p>
-                <p className="text-sm font-semibold text-foreground mt-1">LE/Prosecution Panels</p>
-                <p className="text-xs text-muted-foreground mt-2">Law enforcement backgrounds</p>
+                <p className="text-sm font-semibold text-foreground mt-1">100% LE/Prosecution Panels</p>
+                <p className="text-xs text-muted-foreground mt-2">Panels with all LE/prosecution commissioners</p>
               </Card>
 
               <Card className="p-6">
