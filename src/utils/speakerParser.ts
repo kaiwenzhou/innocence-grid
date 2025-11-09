@@ -84,17 +84,33 @@ export function parseTranscriptSpeakers(
 function normalizeSpeakerName(speaker: string, inmateName?: string | null): string {
   const upper = speaker.toUpperCase();
 
+  // Normalize spaces for comparison (PDFs often have multiple spaces)
+  const normalizeSpaces = (str: string) => str.replace(/\s+/g, ' ').trim();
+
   // Check if this is the inmate
-  if (inmateName && upper.includes(inmateName.toUpperCase())) {
+  if (inmateName) {
+    const normalizedInmateName = normalizeSpaces(inmateName.toUpperCase());
+    const normalizedSpeaker = normalizeSpaces(upper);
+
+    if (normalizedSpeaker.includes(normalizedInmateName) ||
+        normalizedInmateName.includes(normalizedSpeaker)) {
+      return 'INMATE';
+    }
+  }
+
+  // Common speaker patterns for inmates
+  if (upper.includes('DEFENDANT') ||
+      upper.includes('INMATE') ||
+      upper.includes('INCARCERATED PERSON') ||
+      upper.includes('PRISONER')) {
     return 'INMATE';
   }
 
-  // Common speaker patterns
-  if (upper.includes('DEFENDANT') || upper.includes('INMATE')) {
-    return 'INMATE';
-  }
-
-  if (upper.includes('COURT') || upper.includes('PRESIDING') || upper.includes('COMMISSIONER') || upper.includes('JUDGE')) {
+  // Court officials (judges, commissioners, etc.)
+  if (upper.includes('COURT') ||
+      upper.includes('PRESIDING') ||
+      upper.includes('COMMISSIONER') ||
+      upper.includes('JUDGE')) {
     return 'COURT';
   }
 
